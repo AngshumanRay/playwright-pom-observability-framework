@@ -1,0 +1,9 @@
+node_modules
+artifacts
+Reports
+allure-results
+allure-report
+test-results
+playwright/.cache
+*.log
+.DS_Store
