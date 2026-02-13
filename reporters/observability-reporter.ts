@@ -1,3 +1,20 @@
+/**
+ * @file observability-reporter.ts
+ * @description Custom Playwright reporter that aggregates per-test observability
+ *              metrics into a single `observability-metrics.json` summary file.
+ *
+ * Data flow:
+ *  1. Each test produces an `observability-metrics.json` attachment (via the
+ *     auto-fixture in `observability.fixture.ts`).
+ *  2. This reporter reads those attachments in `onTestEnd()`.
+ *  3. In `onEnd()`, it computes aggregate statistics and writes the final
+ *     JSON to `Reports/observability/observability-metrics.json`.
+ *  4. The benchmark report generator reads that JSON to build the HTML dashboard.
+ *
+ * @see {@link ../fixtures/observability.fixture.ts} — produces the per-test metrics
+ * @see {@link ../scripts/generate-performance-benchmark-report.ts} — consumes the summary
+ */
+
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import type { Reporter, FullResult, TestCase, TestResult } from '@playwright/test/reporter';
@@ -8,9 +25,16 @@ import type {
   TestObservabilityEntry
 } from '../observability/types';
 
+// ---------------------------------------------------------------------------
+//  Constants
+// ---------------------------------------------------------------------------
+
+/** Directory where the aggregated metrics JSON is written. */
 const OUTPUT_DIR = path.resolve(process.cwd(), 'Reports/observability');
+/** Full path to the output file. */
 const OUTPUT_FILE = path.resolve(OUTPUT_DIR, 'observability-metrics.json');
 
+/** Default (empty) accessibility result used when no scan data is available. */
 const EMPTY_A11Y: AccessibilityScanResult = {
   totalViolations: 0,
   critical: 0,
@@ -20,6 +44,11 @@ const EMPTY_A11Y: AccessibilityScanResult = {
   violations: []
 };
 
+// ---------------------------------------------------------------------------
+//  Math helpers
+// ---------------------------------------------------------------------------
+
+/** Calculate the arithmetic mean. Returns 0 for empty arrays. */
 function average(values: number[]): number {
   if (values.length === 0) {
     return 0;
@@ -27,6 +56,7 @@ function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+/** Return the p-th percentile from an array. */
 function percentile(values: number[], p: number): number {
   if (values.length === 0) {
     return 0;
@@ -36,11 +66,20 @@ function percentile(values: number[], p: number): number {
   return sorted[Math.min(Math.max(index, 0), sorted.length - 1)];
 }
 
+/** Round a number to the given decimal places. */
 function round(value: number, digits = 2): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 }
 
+// ---------------------------------------------------------------------------
+//  Helper functions
+// ---------------------------------------------------------------------------
+
+/**
+ * Determine the Playwright project name (browser) for a test.
+ * Tries multiple strategies: suite metadata → title path → fallback to 'default'.
+ */
 function resolveProjectName(test: TestCase): string {
   const fromSuite = (test.parent as { project?: () => { name: string } | undefined } | undefined)
     ?.project?.()
@@ -61,6 +100,10 @@ function resolveProjectName(test: TestCase): string {
   return fullTitle.slice(1, -1);
 }
 
+/**
+ * Read the `observability-metrics` JSON attachment from a test result.
+ * Returns `undefined` if the attachment is missing or unreadable.
+ */
 async function readMetricsAttachment(result: TestResult): Promise<FixtureObservabilityMetrics | undefined> {
   const attachment = result.attachments.find((item) => item.name === 'observability-metrics' && item.path);
   if (!attachment?.path) {
@@ -75,10 +118,29 @@ async function readMetricsAttachment(result: TestResult): Promise<FixtureObserva
   }
 }
 
+// ---------------------------------------------------------------------------
+//  Reporter class
+// ---------------------------------------------------------------------------
+
+/**
+ * Custom Playwright reporter that collects observability data from every test
+ * and writes an aggregated JSON summary at the end of the run.
+ *
+ * Implements the Playwright `Reporter` interface:
+ *  - `onTestEnd()` — called after each test, reads the metrics attachment
+ *  - `onEnd()` — called when the entire suite finishes, writes the summary
+ */
 class ObservabilityReporter implements Reporter {
+  /** Unique identifier for this test run (timestamp-based). */
   private readonly runId = new Date().toISOString().replace(/[:.]/g, '-');
+
+  /** Map of test ID → aggregated entry (last retry wins). */
   private readonly testsById = new Map<string, TestObservabilityEntry>();
 
+  /**
+   * Called after each individual test finishes.
+   * Reads the observability-metrics attachment and stores the entry.
+   */
   async onTestEnd(test: TestCase, result: TestResult): Promise<void> {
     const metrics = await readMetricsAttachment(result);
     const responseTimes = metrics?.responseTimesMs ?? [];
@@ -109,7 +171,13 @@ class ObservabilityReporter implements Reporter {
     this.testsById.set(test.id, entry);
   }
 
+  /**
+   * Called when the entire test suite finishes.
+   * Aggregates all per-test entries into a single ObservabilitySummary
+   * and writes it to disk as JSON.
+   */
   async onEnd(result: FullResult): Promise<void> {
+    // Sort tests by duration (longest first) for easy bottleneck identification
     const tests = Array.from(this.testsById.values()).sort((left, right) => right.durationMs - left.durationMs);
     const totalTests = tests.length;
     const passed = tests.filter((item) => item.status === 'passed').length;
@@ -120,7 +188,7 @@ class ObservabilityReporter implements Reporter {
     const totalRequests = tests.reduce((sum, item) => sum + item.requestCount, 0);
     const requestFailures = tests.reduce((sum, item) => sum + item.requestFailureCount, 0);
 
-    // Aggregate accessibility data
+    // ── Aggregate accessibility data across all tests ────────────────
     const a11yOverall = {
       totalViolations: tests.reduce((sum, t) => sum + t.accessibility.totalViolations, 0),
       critical: tests.reduce((sum, t) => sum + t.accessibility.critical, 0),

@@ -1,7 +1,29 @@
+/**
+ * @file observability.fixture.ts
+ * @description Auto-fixture that transparently instruments every Playwright test.
+ *
+ * What it captures (with zero effort from the test author):
+ *  - Network metrics: request count, failures, response times (avg / P95)
+ *  - Console errors and unhandled page errors
+ *  - Test duration & timestamps
+ *  - Accessibility scan (7 WCAG rules) run after each test action completes
+ *
+ * All collected data is written to an `observability-metrics.json` attachment
+ * which the custom ObservabilityReporter later aggregates into a single JSON.
+ *
+ * @see {@link ../reporters/observability-reporter.ts} — consumes these attachments
+ * @see {@link ../observability/types.ts} — TypeScript interfaces for the metrics
+ */
+
 import { promises as fs } from 'node:fs';
 import { Request, test as base, expect } from '@playwright/test';
 import { AccessibilityScanResult, AccessibilityViolation, FixtureObservabilityMetrics } from '../observability/types';
 
+// ---------------------------------------------------------------------------
+//  Math utility helpers (duplicated here to avoid importing across packages)
+// ---------------------------------------------------------------------------
+
+/** Calculate the arithmetic mean of an array of numbers. Returns 0 for empty arrays. */
 function average(values: number[]): number {
   if (values.length === 0) {
     return 0;
@@ -9,6 +31,11 @@ function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+/**
+ * Return the p-th percentile from an array of numbers.
+ * @param values - Array of numeric values
+ * @param p - Percentile to compute (0-100)
+ */
 function percentile(values: number[], p: number): number {
   if (values.length === 0) {
     return 0;
@@ -18,17 +45,33 @@ function percentile(values: number[], p: number): number {
   return sorted[Math.min(Math.max(index, 0), sorted.length - 1)];
 }
 
+/** Round a number to a given number of decimal places. */
 function round(value: number, digits = 2): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 }
 
-/** Run a lightweight accessibility audit using the browser's built-in Accessibility Tree. */
+// ---------------------------------------------------------------------------
+//  Accessibility scanner
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a lightweight accessibility audit using the browser's DOM.
+ * Checks 7 common WCAG rules without any external dependency (no axe-core).
+ *
+ * Rules checked:
+ *  1. Images without alt text
+ *  2. Buttons without accessible names
+ *  3. Links without accessible names
+ *  4. Missing `<html lang>`
+ *  5. Form inputs without labels
+ *  6. Skipped heading levels
+ *  7. Missing `<main>` landmark using the browser's built-in Accessibility Tree. */
 async function runAccessibilityScan(page: import('@playwright/test').Page): Promise<AccessibilityScanResult> {
   const violations: AccessibilityViolation[] = [];
 
   try {
-    // 1. Images without alt text
+    // ── Rule 1: Images without alt text (WCAG 1.1.1) ──────────────────
     const imgsMissingAlt = await page.evaluate(() => {
       const imgs = Array.from(document.querySelectorAll('img'));
       return imgs.filter((img) => !img.getAttribute('alt') && !img.getAttribute('role')).length;
@@ -43,7 +86,7 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
       });
     }
 
-    // 2. Buttons / links without accessible names
+    // ── Rule 2: Buttons without accessible names (WCAG 4.1.2) ──────
     const emptyButtons = await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll('button, [role="button"]'));
       return btns.filter(
@@ -60,6 +103,7 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
       });
     }
 
+    // ── Rule 3: Links without accessible names (WCAG 2.4.4) ─────────
     const emptyLinks = await page.evaluate(() => {
       const links = Array.from(document.querySelectorAll('a[href]'));
       return links.filter(
@@ -76,7 +120,7 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
       });
     }
 
-    // 3. Missing document language
+    // ── Rule 4: Missing document language (WCAG 3.1.1) ──────────────
     const missingLang = await page.evaluate(() => !document.documentElement.getAttribute('lang'));
     if (missingLang) {
       violations.push({
@@ -88,7 +132,7 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
       });
     }
 
-    // 4. Form inputs without labels
+    // ── Rule 5: Form inputs without labels (WCAG 1.3.1) ─────────────
     const unlabeledInputs = await page.evaluate(() => {
       const inputs = Array.from(document.querySelectorAll('input, select, textarea'));
       return inputs.filter((el) => {
@@ -107,7 +151,7 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
       });
     }
 
-    // 5. Heading order / skipped heading levels
+    // ── Rule 6: Heading order / skipped levels (WCAG 1.3.1) ─────────
     const skippedHeadings = await page.evaluate(() => {
       const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'));
       let skips = 0;
@@ -129,7 +173,7 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
       });
     }
 
-    // 6. Color contrast — flag elements with very small text and no explicit contrast
+    // ── Rule 7: Color contrast — flag elements with low-contrast text ─
     const lowContrastCandidates = await page.evaluate(() => {
       const elements = Array.from(document.querySelectorAll('p, span, a, li, td, th, label'));
       let count = 0;
@@ -152,7 +196,7 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
       });
     }
 
-    // 7. Missing landmark regions
+    // ── Rule 8: Missing <main> landmark region (WCAG 1.3.1) ─────────
     const hasMain = await page.evaluate(() => !!document.querySelector('main, [role="main"]'));
     if (!hasMain) {
       violations.push({
@@ -164,9 +208,11 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
       });
     }
   } catch {
-    // If scan fails (e.g., page closed early), return empty results
+    // Scan may fail if the page was closed early (e.g., navigation error).
+    // In that case, return whatever violations we already collected.
   }
 
+  // ── Aggregate violation counts by severity level ──────────────────
   const critical = violations.filter((v) => v.impact === 'critical').length;
   const serious = violations.filter((v) => v.impact === 'serious').length;
   const moderate = violations.filter((v) => v.impact === 'moderate').length;
@@ -182,25 +228,49 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
   };
 }
 
+// ---------------------------------------------------------------------------
+//  Auto-fixture: observability instrumentation
+// ---------------------------------------------------------------------------
+
+/**
+ * Extended Playwright `test` object with an auto-fixture (`observabilityAuto`)
+ * that hooks into every test without the test author writing any extra code.
+ *
+ * Lifecycle:
+ *  1. **Before the test** — attach event listeners for requests, responses,
+ *     console messages and page errors.
+ *  2. **During the test** — listeners silently accumulate metrics.
+ *  3. **After the test** — run the accessibility scan, compute aggregates,
+ *     and save the metrics as a JSON attachment on the test result.
+ */
 export const test = base.extend<{ observabilityAuto: void }>({
   observabilityAuto: [
     async ({ page }, use, testInfo) => {
+      // ── Tracking variables ──────────────────────────────────────────
+      /** Maps each in-flight request to its start timestamp (ms). */
       const requestStartedAt = new Map<Request, number>();
+      /** Collected response times for every completed request (ms). */
       const responseTimes: number[] = [];
+      /** Console error messages captured during the test. */
       const consoleErrors: string[] = [];
+      /** Unhandled page error messages captured during the test. */
       const pageErrors: string[] = [];
 
-      let requestCount = 0;
-      let requestFailureCount = 0;
-      let responseErrorCount = 0;
+      let requestCount = 0;        // Total network requests
+      let requestFailureCount = 0; // Requests that failed (network error)
+      let responseErrorCount = 0;  // Responses with HTTP status >= 400
 
       const testStartedAtMs = Date.now();
 
+      // ── Event listeners (attached before test runs) ────────────────
+
+      /** Track every outgoing network request. */
       page.on('request', (request) => {
         requestCount += 1;
         requestStartedAt.set(request, Date.now());
       });
 
+      /** When a request completes, record its response time. */
       page.on('requestfinished', (request) => {
         const startedAt = requestStartedAt.get(request);
         if (startedAt) {
@@ -209,41 +279,47 @@ export const test = base.extend<{ observabilityAuto: void }>({
         }
       });
 
+      /** Track network-level failures (DNS, TLS, connection refused, etc.). */
       page.on('requestfailed', (request) => {
         requestFailureCount += 1;
         requestStartedAt.delete(request);
       });
 
+      /** Count HTTP responses with 4xx / 5xx status codes. */
       page.on('response', (response) => {
         if (response.status() >= 400) {
           responseErrorCount += 1;
         }
       });
 
+      /** Capture console.error() calls from the page. */
       page.on('console', (message) => {
         if (message.type() === 'error') {
           consoleErrors.push(message.text());
         }
       });
 
+      /** Capture unhandled JavaScript errors (window.onerror). */
       page.on('pageerror', (error) => {
         pageErrors.push(error.message);
       });
 
+      // ── Hand control to the test ───────────────────────────────────
       await use();
 
-      // Run accessibility scan after test completes
+      // ── Post-test: accessibility scan ──────────────────────────────
       let accessibility: AccessibilityScanResult = {
         totalViolations: 0, critical: 0, serious: 0, moderate: 0, minor: 0, violations: []
       };
       try {
         accessibility = await runAccessibilityScan(page);
       } catch {
-        // Page may have been closed
+        // Page may already have been closed; use empty result
       }
 
       const testEndedAtMs = Date.now();
 
+      // ── Build the metrics object ───────────────────────────────────
       const metrics: FixtureObservabilityMetrics = {
         requestCount,
         requestFailureCount,
@@ -259,6 +335,8 @@ export const test = base.extend<{ observabilityAuto: void }>({
         accessibility
       };
 
+      // ── Save metrics as a test attachment ───────────────────────────
+      // The ObservabilityReporter reads this attachment after the run.
       const attachmentPath = testInfo.outputPath('observability-metrics.json');
       await fs.writeFile(attachmentPath, JSON.stringify(metrics, null, 2), 'utf-8');
       await testInfo.attach('observability-metrics', {
@@ -266,7 +344,7 @@ export const test = base.extend<{ observabilityAuto: void }>({
         contentType: 'application/json'
       });
     },
-    { auto: true }
+    { auto: true } // `auto: true` means this fixture runs for EVERY test
   ]
 });
 

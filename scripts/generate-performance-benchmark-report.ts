@@ -1,3 +1,26 @@
+/**
+ * @file generate-performance-benchmark-report.ts
+ * @description Reads `observability-metrics.json` and generates an interactive
+ *              HTML benchmark dashboard with 3D Plotly.js charts, KPI cards,
+ *              accessibility violation summaries, and browser comparison tables.
+ *
+ * Scoring formula (per test, weighted composite):
+ *   Benchmark = Duration×0.35 + Reliability×0.25 + Quality×0.15
+ *             + Throughput×0.10 + Accessibility×0.15
+ *
+ * Tier classification based on score:
+ *   Elite (≥90) | Strong (≥75) | Stable (≥60) | Watch (≥40) | Critical (<40)
+ *
+ * Usage:
+ *   npx tsx scripts/generate-performance-benchmark-report.ts [path-to-metrics.json]
+ *
+ * Output:
+ *   Reports/observability/performance-benchmark-report.html
+ *
+ * @see {@link ../reporters/observability-reporter.ts} — produces the input JSON
+ * @see {@link ../observability/types.ts} — shared type definitions
+ */
+
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import {
@@ -6,16 +29,25 @@ import {
   TestObservabilityEntry
 } from '../observability/types';
 
+// ---------------------------------------------------------------------------
+//  Constants
+// ---------------------------------------------------------------------------
+
+/** Default path to the observability metrics JSON (produced by the reporter). */
 const DEFAULT_INPUT = path.resolve(process.cwd(), 'Reports/observability/observability-metrics.json');
+/** Directory where the HTML report will be written. */
 const OUTPUT_DIR = path.resolve(process.cwd(), 'Reports/observability');
+/** Full path of the generated benchmark HTML report. */
 const OUTPUT_FILE = path.resolve(OUTPUT_DIR, 'performance-benchmark-report.html');
 
 // ---------------------------------------------------------------------------
 //  Types
 // ---------------------------------------------------------------------------
 
+/** Quality tier label derived from the benchmark score. */
 type BenchmarkTier = 'Elite' | 'Strong' | 'Stable' | 'Watch' | 'Critical';
 
+/** Enriched test entry with computed scores, tier, and browser info. */
 interface BenchmarkTestEntry extends TestObservabilityEntry {
   browser: string;
   errorSignals: number;
@@ -112,20 +144,24 @@ interface BenchmarkPayload {
 //  Math helpers
 // ---------------------------------------------------------------------------
 
+/** Round a number to the specified decimal places. */
 function round(value: number, digits = 2): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 }
 
+/** Constrain a value between min and max (inclusive). */
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** Arithmetic mean. Returns 0 for empty arrays. */
 function average(values: number[]): number {
   if (values.length === 0) return 0;
   return values.reduce((s, v) => s + v, 0) / values.length;
 }
 
+/** Return the p-th percentile from a numeric array. */
 function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -133,6 +169,7 @@ function percentile(values: number[], p: number): number {
   return sorted[Math.min(Math.max(idx, 0), sorted.length - 1)];
 }
 
+/** Population standard deviation. */
 function stdDev(values: number[]): number {
   if (values.length === 0) return 0;
   const mean = average(values);
@@ -143,18 +180,27 @@ function stdDev(values: number[]): number {
 //  Scoring helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Score a metric where lower values are better (e.g., duration).
+ * Returns 100 if value ≤ target, 0 if value ≥ max, linear interpolation between.
+ */
 function scoreLowerBetter(value: number, target: number, max: number): number {
   if (value <= target) return 100;
   if (value >= max) return 0;
   return round(clamp((1 - (value - target) / (max - target)) * 100, 0, 100));
 }
 
+/**
+ * Score a metric where higher values are better (e.g., throughput).
+ * Returns 100 if value ≥ target, 0 if value ≤ min, linear interpolation between.
+ */
 function scoreHigherBetter(value: number, min: number, target: number): number {
   if (value >= target) return 100;
   if (value <= min) return 0;
   return round(clamp(((value - min) / (target - min)) * 100, 0, 100));
 }
 
+/** Map a numeric score (0-100) to a human-readable quality tier. */
 function tierFromScore(score: number): BenchmarkTier {
   if (score >= 90) return 'Elite';
   if (score >= 75) return 'Strong';
@@ -163,15 +209,24 @@ function tierFromScore(score: number): BenchmarkTier {
   return 'Critical';
 }
 
+/**
+ * Compute an accessibility score (0-100) from violation counts.
+ * Penalty weights: critical×4, serious×3, moderate×2, minor×1.
+ * Each penalty point deducts 8 from the score.
+ */
 function a11yScore(a: AccessibilityScanResult): number {
   const penalty = a.critical * 4 + a.serious * 3 + a.moderate * 2 + a.minor * 1;
   return round(clamp(100 - penalty * 8, 0, 100));
 }
 
 // ---------------------------------------------------------------------------
-//  Data extraction
+//  Data extraction helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Extract the browser name from a test entry.
+ * Tries the first segment of the title path, then the project name, then 'unknown'.
+ */
 function extractBrowserName(test: TestObservabilityEntry): string {
   const head = test.title.split(' > ')[0].trim().toLowerCase();
   if (['chromium', 'firefox', 'webkit'].includes(head)) return head;
@@ -179,6 +234,10 @@ function extractBrowserName(test: TestObservabilityEntry): string {
   return 'unknown';
 }
 
+/**
+ * Calculate the wall-clock span (ms) for a set of tests.
+ * Uses actual timestamps when available, falls back to sum of durations.
+ */
 function wallTimeMsFromTests(tests: Pick<BenchmarkTestEntry, 'startedAtMs' | 'endedAtMs' | 'durationMs'>[]): number {
   if (tests.length === 0) return 0;
   const starts = tests.map((t) => t.startedAtMs).filter(Number.isFinite);
@@ -194,6 +253,13 @@ function wallTimeMsFromTests(tests: Pick<BenchmarkTestEntry, 'startedAtMs' | 'en
 //  Build enriched entries
 // ---------------------------------------------------------------------------
 
+/**
+ * Enrich a raw test entry with computed benchmark scores and tier.
+ *
+ * Score formula (weighted composite):
+ *   Duration × 0.35 + Reliability × 0.25 + Quality × 0.15
+ *   + Throughput × 0.10 + Accessibility × 0.15
+ */
 function buildBenchmarkTestEntry(test: TestObservabilityEntry): BenchmarkTestEntry {
   const browser = extractBrowserName(test);
   const errorSignals =
@@ -235,6 +301,10 @@ function buildBenchmarkTestEntry(test: TestObservabilityEntry): BenchmarkTestEnt
   };
 }
 
+/**
+ * Group tests by browser and compute aggregate benchmark rows.
+ * Returns rows sorted by benchmark score (highest first).
+ */
 function buildBrowserRows(tests: BenchmarkTestEntry[]): BrowserBenchmarkRow[] {
   const groups = new Map<string, BenchmarkTestEntry[]>();
   for (const t of tests) {
@@ -316,6 +386,11 @@ function buildBrowserRows(tests: BenchmarkTestEntry[]): BrowserBenchmarkRow[] {
 //  Build payload
 // ---------------------------------------------------------------------------
 
+/**
+ * Build the complete benchmark payload from the raw observability summary.
+ * This payload is serialised into the HTML report as an inline JSON variable
+ * that the client-side Plotly.js charts read at render time.
+ */
 function buildPayload(summary: ObservabilitySummary): BenchmarkPayload {
   const tests = summary.tests.map(buildBenchmarkTestEntry);
   const durations = tests.map((i) => i.durationMs);
@@ -409,6 +484,21 @@ function buildPayload(summary: ObservabilitySummary): BenchmarkPayload {
 //  HTML Builder
 // ---------------------------------------------------------------------------
 
+/**
+ * Generate a self-contained HTML string for the benchmark dashboard.
+ *
+ * The report includes:
+ *  - KPI cards (benchmark score, pass rate, duration, throughput, etc.)
+ *  - Accessibility overview with violation donut chart
+ *  - 3D scatter plots (test cloud + browser comparison)
+ *  - Radar chart, box plot, tier pie chart
+ *  - Throughput vs pass rate combo chart
+ *  - Top 10 slowest tests bar chart
+ *  - Browser comparison table
+ *  - Glossary of metrics for beginners
+ *
+ * All charts use Plotly.js loaded from CDN.
+ */
 function buildHtml(payload: BenchmarkPayload): string {
   const safePayload = JSON.stringify(payload).replace(/</g, '\\u003c');
 
@@ -948,6 +1038,10 @@ function buildHtml(payload: BenchmarkPayload): string {
 //  Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Entry point: read the metrics JSON, build the payload, write the HTML report.
+ * Accepts an optional CLI argument for a custom metrics file path.
+ */
 async function main(): Promise<void> {
   const metricsPath = process.argv[2] ? path.resolve(process.argv[2]) : DEFAULT_INPUT;
   const raw = await fs.readFile(metricsPath, 'utf-8');
@@ -960,6 +1054,7 @@ async function main(): Promise<void> {
   console.log('[benchmark] Report written to ' + OUTPUT_FILE);
 }
 
+// Run and handle errors gracefully
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error('[benchmark] Failed to build report: ' + message);
