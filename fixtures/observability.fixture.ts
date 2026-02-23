@@ -67,8 +67,7 @@
  *   ✅ accessibility          — Full WCAG scan results
  *
  * @see {@link ../observability/types.ts} — TypeScript interfaces for the metrics
- * @see {@link ../reporters/observability-reporter.ts} — Reads and aggregates these attachments
- * @see {@link ../reporters/UniversalReporter.ts} — Also reads these attachments for the 7-tab report
+ * @see {@link ../reporters/UniversalReporter.ts} — Reads these attachments for the 7-tab report
  * @see {@link ../PROJECT-ARCHITECTURE.md} — Full architecture documentation
  */
 

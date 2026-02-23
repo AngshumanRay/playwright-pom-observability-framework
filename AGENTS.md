@@ -24,24 +24,21 @@ This guide is for juniors and beginners writing tests in this framework.
 | `fixtures/test.fixture.ts` | Injects page objects into tests |
 | `fixtures/observability.fixture.ts` | Auto-captures network metrics, errors & accessibility per test |
 | `observability/types.ts` | TypeScript types for metrics & accessibility data |
-| `reporters/observability-reporter.ts` | Aggregates metrics into JSON output |
-| `scripts/generate-performance-benchmark-report.ts` | Builds the HTML benchmark + accessibility dashboard |
+| `reporters/UniversalReporter.ts` | Generates the 7-tab Universal Report HTML |
 
 ## Run and report (single command)
-Use **one command** for full execution + all 3 reports:
+Use **one command** for full execution + both reports:
 ```bash
 npm run reports
 ```
 
-This runs: clean → tests → benchmark report → Allure report.
+This runs: clean → tests → reports generated automatically.
 
 All outputs are available in `Reports/`:
 | Report | Path |
 |--------|------|
 | Playwright HTML | `Reports/playwright-html/index.html` |
-| Allure HTML | `Reports/allure-report/index.html` |
-| Benchmark + Accessibility Dashboard | `Reports/observability/performance-benchmark-report.html` |
-| Raw metrics JSON | `Reports/observability/observability-metrics.json` |
+| Universal Report | `Reports/universal-report/index.html` |
 | Failure artifacts | `Reports/test-results/` |
 
 ## Test writing template
@@ -66,10 +63,10 @@ Every test automatically collects:
 - ✅ Test duration and timing
 - ✅ **Accessibility scan** — checks for missing alt text, empty buttons, heading order, form labels, missing landmarks, and more
 
-All of this flows into the benchmark report automatically.
+All of this flows into the Universal Report automatically.
 
 ## Definition of done
 - [ ] Test passes locally (`npm run reports`)
 - [ ] Test uses POM (no raw selectors in the spec file)
-- [ ] `npm run reports` completes and generates all 3 reports in `Reports/`
+- [ ] `npm run reports` completes and generates both reports in `Reports/`
 - [ ] No new critical/serious accessibility violations introduced

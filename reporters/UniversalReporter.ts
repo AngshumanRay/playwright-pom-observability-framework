@@ -35,11 +35,9 @@
  *   3. Same attachment's .accessibility field → WCAG violations, severity counts
  *   4. Screenshot attachments → base64-encoded images embedded in the Tests tab
  *
- *   WHAT MAKES THIS DIFFERENT FROM observability-reporter.ts:
- *   - observability-reporter.ts writes a JSON file (for the benchmark script to read)
- *   - This reporter writes a complete HTML report (for humans to view)
- *   - This reporter also computes security analysis, benchmark scores, and tiers
- *   - This reporter embeds screenshots directly in the HTML (base64)
+ *   THIS IS THE ONLY CUSTOM REPORTER IN THE PROJECT.
+ *   It reads per-test attachments directly and generates a complete HTML report.
+ *   No intermediate JSON files are needed.
  *
  * ARCHITECTURE OF THIS FILE:
  *   1. Internal types (UTest, UObservability, UA11y, UPayload, etc.)

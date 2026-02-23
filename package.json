@@ -2,25 +2,19 @@
   "name": "playwright-observability-framework",
   "version": "1.0.0",
   "private": true,
-  "description": "Custom Playwright framework with Page Object Model, metrics instrumentation, and charted observability reports.",
+  "description": "Custom Playwright framework with Page Object Model, metrics instrumentation, and Universal Report.",
   "scripts": {
-    "clean:reports": "node -e \"const fs=require('fs');['Reports','artifacts','allure-results','allure-report'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}));\"",
+    "clean:reports": "node -e \"const fs=require('fs');['Reports','artifacts'].forEach(p=>fs.rmSync(p,{recursive:true,force:true}));\"",
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "report:playwright": "playwright show-report Reports/playwright-html",
-    "report:allure:generate": "node scripts/allure-cli.js generate Reports/allure-results --clean -o Reports/allure-report",
-    "report:allure:open": "node scripts/allure-cli.js open Reports/allure-report",
-    "report:3d": "node --import tsx scripts/generate-performance-benchmark-report.ts",
-    "reports": "sh -c 'npm run clean:reports; npm run test; TEST_EXIT=$?; npm run report:3d; npm run report:allure:generate; exit $TEST_EXIT'",
-    "report:open:all": "sh -c 'npx playwright show-report Reports/playwright-html & node scripts/allure-cli.js open Reports/allure-report & open Reports/observability/performance-benchmark-report.html'"
+    "reports": "sh -c 'npm run clean:reports; npm run test; exit $?'",
+    "report:open:all": "sh -c 'npx playwright show-report Reports/playwright-html & open Reports/universal-report/index.html'"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
     "@types/node": "^22.13.10",
-    "allure-commandline": "^2.34.1",
-    "allure-playwright": "^3.4.5",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
 }

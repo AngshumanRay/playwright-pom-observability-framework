@@ -15,24 +15,22 @@
  *
  *   FixtureObservabilityMetrics
  *     PRODUCED BY: fixtures/observability.fixture.ts (per-test, saved as JSON attachment)
- *     CONSUMED BY: reporters/observability-reporter.ts (reads from attachment)
- *                  reporters/UniversalReporter.ts (reads from attachment)
+ *     CONSUMED BY: reporters/UniversalReporter.ts (reads from attachment)
  *
  *   TestObservabilityEntry
- *     PRODUCED BY: reporters/observability-reporter.ts (enriched with Playwright metadata)
- *     CONSUMED BY: scripts/generate-performance-benchmark-report.ts
+ *     PRODUCED BY: reporters/UniversalReporter.ts (enriched with Playwright metadata)
+ *     CONSUMED BY: UniversalReporter.ts (used to build the HTML payload)
  *
  *   ObservabilitySummary
- *     PRODUCED BY: reporters/observability-reporter.ts (aggregated, written to JSON file)
- *     CONSUMED BY: scripts/generate-performance-benchmark-report.ts (reads JSON file)
+ *     PRODUCED BY: reporters/UniversalReporter.ts (aggregated in memory)
+ *     CONSUMED BY: UniversalReporter.ts (used to build the HTML payload)
  *
  *   AccessibilityViolation / AccessibilityScanResult
  *     PRODUCED BY: fixtures/observability.fixture.ts (scan runs after each test)
- *     CONSUMED BY: All reporters and scripts
+ *     CONSUMED BY: reporters/UniversalReporter.ts
  *
  * @see {@link ../fixtures/observability.fixture.ts} — produces FixtureObservabilityMetrics
- * @see {@link ../reporters/observability-reporter.ts} — reads metrics, builds ObservabilitySummary
- * @see {@link ../scripts/generate-performance-benchmark-report.ts} — consumes the summary JSON
+ * @see {@link ../reporters/UniversalReporter.ts} — reads metrics, builds HTML report
  * @see {@link ../PROJECT-ARCHITECTURE.md} — full architecture documentation
  */
 
@@ -103,7 +101,7 @@ export interface AccessibilityScanResult {
  *  4. Records timing → testStartedAt, testEndedAt, testDurationMs
  *
  * This data is serialised to JSON and attached to the test result, then read
- * by the observability-reporter.ts and UniversalReporter.ts.
+ * by the UniversalReporter.ts.
  */
 export interface FixtureObservabilityMetrics {
   /** Total number of network requests made during the test. */
@@ -134,9 +132,9 @@ export interface FixtureObservabilityMetrics {
 
 // ---------------------------------------------------------------------------
 //  Reporter-level types (aggregated across all tests)
-//  These types are produced by the observability-reporter.ts AFTER all tests
-//  have finished. They combine Playwright metadata (status, retry, project)
+//  These types combine Playwright metadata (status, retry, project)
 //  with the raw fixture metrics into a single enriched structure.
+//  Used internally by the UniversalReporter.
 // ---------------------------------------------------------------------------
 
 /**
@@ -144,8 +142,8 @@ export interface FixtureObservabilityMetrics {
  *
  * This is the "enriched" version of FixtureObservabilityMetrics — it includes
  * Playwright metadata (test ID, title, file, project, status, outcome, retry)
- * that the fixture doesn't have access to. The observability-reporter.ts
- * creates these entries by combining Playwright's TestCase/TestResult with
+ * that the fixture doesn't have access to. The UniversalReporter creates
+ * these entries by combining Playwright's TestCase/TestResult with
  * the fixture's metrics attachment.
  *
  * Example: A test in the fixture produces { requestCount: 45, ... }.

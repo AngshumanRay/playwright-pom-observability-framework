@@ -14,7 +14,7 @@
  *      1. WHERE to find tests       → `testDir: './tests'`
  *      2. HOW to execute them       → workers, retries, timeouts
  *      3. WHICH browsers to use     → Chromium + Firefox (2 projects)
- *      4. WHAT reporters to run     → 5 reporters (list, HTML, Allure, Observability, Universal)
+ *      4. WHAT reporters to run     → 3 reporters (list, HTML, Universal)
  *      5. WHAT artifacts to capture → screenshots, video, traces for EVERY test
  *
  * KEY DECISIONS EXPLAINED:
@@ -22,22 +22,17 @@
  *    (parallel tests would cause resource contention and unpredictable timings)
  *  - **screenshot/video/trace: 'on'** — Always capture everything, not just on failure,
  *    so the Universal Report can embed screenshots in the Tests tab
- *  - **5 reporters** — Each serves a different audience:
+ *  - **3 reporters** — Each serves a different audience:
  *      • `list` — Real-time console output for developers watching the terminal
  *      • `html` — Playwright's built-in HTML report for debugging individual tests
- *      • `allure-playwright` — Rich Allure report with history, categories, graphs
- *      • `observability-reporter.ts` — Aggregates network/error/a11y metrics into JSON
  *      • `UniversalReporter.ts` — Generates the comprehensive 7-tab HTML report
  *
  * OUTPUT DIRECTORIES (all under `Reports/`):
  *  - `Reports/playwright-html/` — Playwright's built-in HTML report
- *  - `Reports/allure-results/` — Raw Allure result files (consumed by Allure CLI)
- *  - `Reports/observability/` — Custom metrics JSON + 3D benchmark dashboard
  *  - `Reports/universal-report/` — 7-tab Universal Report HTML
  *  - `Reports/test-results/` — Per-test screenshots, videos, trace files
  *
  * @see {@link ./fixtures/observability.fixture.ts} — Auto-fixture that captures metrics
- * @see {@link ./reporters/observability-reporter.ts} — Custom reporter that aggregates metrics
  * @see {@link ./reporters/UniversalReporter.ts} — 7-tab Universal Report generator
  * @see {@link ./PROJECT-ARCHITECTURE.md} — Full architecture documentation
  */
@@ -109,7 +104,7 @@ export default defineConfig({
 
   // ═══════════════════════════════════════════════════════════════════════
   //  REPORTERS
-  //  5 reporters run simultaneously during the test execution.
+  //  3 reporters run simultaneously during the test execution.
   //  Each one receives events (onTestBegin, onTestEnd, etc.) and produces output.
   // ═══════════════════════════════════════════════════════════════════════
   reporter: [
@@ -121,19 +116,8 @@ export default defineConfig({
     //    `open: 'never'` — Don't auto-open the browser after tests finish
     ['html', { outputFolder: 'Reports/playwright-html', open: 'never' }],
 
-    // 3. Allure Report — Rich test management report with history tracking
-    //    Output: Reports/allure-results/ (raw data, processed by `allure generate` later)
-    //    `detail: true` — Include step-by-step details in the report
-    ['allure-playwright', { resultsDir: 'Reports/allure-results', detail: true, suiteTitle: false }],
-
-    // 4. Custom Observability Reporter — Reads per-test observability-metrics attachments
-    //    and aggregates them into a single JSON file
-    //    Output: Reports/observability/observability-metrics.json
-    //    This JSON is later consumed by generate-performance-benchmark-report.ts
-    ['./reporters/observability-reporter.ts'],
-
-    // 5. Universal Reporter — Generates a comprehensive 7-tab HTML report
-    //    with Dashboard, Tests, Performance, Observability, Security, Accessibility, Browsers
+    // 3. Universal Reporter — Generates a comprehensive 7-tab HTML report
+    //    with Dashboard, Tests, Performance, Observability, Security, Accessibility, Glossary
     //    Output: Reports/universal-report/index.html
     ['./reporters/UniversalReporter.ts', { outputDir: 'Reports/universal-report' }]
   ],

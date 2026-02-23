@@ -17,7 +17,7 @@ It automatically captures:
 | **Network Observability** | Counts every HTTP request, tracks failures, measures response times |
 | **Error Tracking** | Captures `console.error()` calls and unhandled JavaScript exceptions |
 | **Accessibility Scanning** | Checks 8 WCAG rules on every page after every test — no code needed |
-| **4 Report Formats** | Playwright HTML, Allure, 3D Performance Benchmark, 7-Tab Universal Report |
+| **2 Report Formats** | Playwright HTML Report + 7-Tab Universal Report |
 
 The test author writes **zero extra code** — all observability is injected automatically via fixtures.
 
@@ -46,24 +46,16 @@ project-root/
 │   └── getting-started-vscode.spec.ts ← 5 test scenarios (uses POM methods only)
 │
 ├── reporters/
-│   ├── observability-reporter.ts   ← Aggregates per-test metrics into JSON
 │   └── UniversalReporter.ts        ← Generates 7-tab HTML report
-│
-├── scripts/
-│   └── generate-performance-benchmark-report.ts ← Generates 3D benchmark dashboard
 │
 ├── Reports/                        ← ALL output goes here
 │   ├── playwright-html/            ← Playwright's built-in HTML report
-│   ├── allure-results/             ← Raw Allure data files
-│   ├── allure-report/              ← Generated Allure HTML report
-│   ├── observability/              ← Metrics JSON + 3D benchmark dashboard
 │   ├── universal-report/           ← 7-tab Universal Report HTML
 │   └── test-results/               ← Screenshots, videos, traces per test
 │
 ├── AGENTS.md                       ← Quick rules for writing tests
 ├── README.md                       ← Setup & usage guide
 ├── walkthrough.md                  ← Beginner walkthrough
-├── UNIVERSAL-REPORT-WALKTHROUGH.md ← Detailed 7-tab report guide
 └── PROJECT-ARCHITECTURE.md         ← THIS FILE — full architecture guide
 ```
 
@@ -109,39 +101,14 @@ project-root/
 │  ┌─ Playwright built-in reporters ─────────────────────────────┐   │
 │  │  • list        → console output                              │   │
 │  │  • html        → Reports/playwright-html/index.html          │   │
-│  │  • allure      → Reports/allure-results/ (raw data)          │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌─ Custom reporter: observability-reporter.ts ────────────────┐   │
-│  │  • Reads observability-metrics attachment from each test      │   │
-│  │  • Aggregates into ObservabilitySummary                       │   │
-│  │  • Writes Reports/observability/observability-metrics.json    │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 │  ┌─ Custom reporter: UniversalReporter.ts ─────────────────────┐   │
-│  │  • Reads SAME observability-metrics attachment                │   │
+│  │  • Reads observability-metrics attachment from each test      │   │
 │  │  • Also reads a11y data from the attachment                   │   │
 │  │  • Also reads screenshot attachments (base64 encoded)         │   │
 │  │  • Computes scores, tiers, security analysis                  │   │
 │  │  • Generates Reports/universal-report/index.html (7 tabs)     │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-                              │ metrics JSON
-                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      3. POST-RUN SCRIPTS                            │
-│                                                                     │
-│  ┌─ generate-performance-benchmark-report.ts ──────────────────┐   │
-│  │  • Reads Reports/observability/observability-metrics.json     │   │
-│  │  • Enriches each test with benchmark scores & tiers           │   │
-│  │  • Groups by browser, computes radar/box/3D chart data        │   │
-│  │  • Writes Reports/observability/performance-benchmark-...html │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌─ Allure CLI (allure generate) ──────────────────────────────┐   │
-│  │  • Reads Reports/allure-results/ raw files                    │   │
-│  │  • Generates Reports/allure-report/index.html                 │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -159,7 +126,7 @@ project-root/
 - **`workers: 1`** — Run tests one at a time (sequential) for stable benchmark metrics
 - **`retries: 1`** — If a test fails, retry it once before marking it failed
 - **`timeout: 45_000`** — Each test gets 45 seconds max
-- **5 reporters** — list (console), HTML, Allure, observability-reporter, UniversalReporter
+- **3 reporters** — list (console), HTML, UniversalReporter
 - **`screenshot: 'on'`, `video: 'on'`, `trace: 'on'`** — Always capture everything
 - **2 browser projects** — Chromium + Firefox (each test runs in both)
 
@@ -310,28 +277,7 @@ test.describe('Playwright docs - getting started with VS Code', () => {
 
 ---
 
-### 7. `reporters/observability-reporter.ts` — The Aggregator
-
-**What:** Custom Playwright reporter that collects per-test observability data into one JSON file.
-
-**Lifecycle:**
-```
-onTestEnd(test, result)     ← Called after EACH test
-  └─ Read observability-metrics attachment
-  └─ Store as TestObservabilityEntry in memory
-
-onEnd(result)               ← Called when ALL tests finish
-  └─ Aggregate all entries into ObservabilitySummary
-  └─ Compute totals (requests, failures, a11y)
-  └─ Write Reports/observability/observability-metrics.json
-```
-
-**Output file:** `Reports/observability/observability-metrics.json`  
-This JSON is consumed by `generate-performance-benchmark-report.ts` to build the 3D dashboard.
-
----
-
-### 8. `reporters/UniversalReporter.ts` — The Mega Report
+### 7. `reporters/UniversalReporter.ts` — The Mega Report
 
 **What:** Self-contained reporter that generates a comprehensive 7-tab HTML report.
 
@@ -355,43 +301,19 @@ This JSON is consumed by `generate-performance-benchmark-report.ts` to build the
 
 ---
 
-### 9. `scripts/generate-performance-benchmark-report.ts` — The 3D Dashboard
-
-**What:** Post-run script that reads `observability-metrics.json` and generates an interactive 3D benchmark dashboard.
-
-**Scoring formula per test:**
-```
-Benchmark = Duration × 0.35 + Reliability × 0.25 + Quality × 0.15
-          + Throughput × 0.10 + Accessibility × 0.15
-```
-
-**Tier classification:**
-| Score | Tier |
-|---|---|
-| ≥ 90 | 🟢 Elite |
-| ≥ 75 | 🔵 Strong |
-| ≥ 60 | 🟡 Stable |
-| ≥ 40 | 🟠 Watch |
-| < 40 | 🔴 Critical |
-
-**Charts generated:** 3D test cloud, 3D browser comparison, radar chart, box plot, tier pie, throughput vs pass rate, top 10 slowest tests, accessibility violations donut, browser comparison table, per-test table.
-
----
-
-### 10. `package.json` — NPM Scripts
+### 8. `package.json` — NPM Scripts
 
 | Script | What It Does |
 |---|---|
 | `npm run clean:reports` | Deletes all old report folders |
 | `npm run test` | Runs all Playwright tests |
-| `npm run reports` | **THE ONE COMMAND** — clean → test → 3D report → Allure report |
+| `npm run reports` | **THE ONE COMMAND** — clean → test → both reports generated automatically |
 | `npm run report:playwright` | Opens Playwright HTML report in browser |
-| `npm run report:allure:open` | Opens Allure HTML report in browser |
-| `npm run report:3d` | Generates 3D benchmark dashboard from metrics JSON |
+| `npm run report:open:all` | Opens both reports in browser |
 
 ---
 
-### 11. `tsconfig.json` — TypeScript Settings
+### 9. `tsconfig.json` — TypeScript Settings
 
 | Setting | Value | Why |
 |---|---|---|
@@ -433,14 +355,12 @@ tests/*.spec.ts               ← Tests use `docsPage` — everything else is au
 
 ---
 
-## 📊 Report Outputs (4 Reports)
+## 📊 Report Outputs (2 Reports)
 
 | # | Report | File | Generated By |
 |---|---|---|---|
 | 1 | Playwright HTML | `Reports/playwright-html/index.html` | Playwright built-in |
-| 2 | Allure HTML | `Reports/allure-report/index.html` | Allure CLI |
-| 3 | 3D Benchmark Dashboard | `Reports/observability/performance-benchmark-report.html` | `scripts/generate-performance-benchmark-report.ts` |
-| 4 | Universal Report (7 tabs) | `Reports/universal-report/index.html` | `reporters/UniversalReporter.ts` |
+| 2 | Universal Report (7 tabs) | `Reports/universal-report/index.html` | `reporters/UniversalReporter.ts` |
 
 ---
 
@@ -453,9 +373,7 @@ npm run reports
 This single command:
 1. Cleans old report artifacts
 2. Runs all Playwright tests (Chromium + Firefox = 10 test executions)
-3. Generates the 3D Performance Benchmark dashboard
-4. Generates the Allure HTML report
-5. The Universal Report and Playwright HTML report are generated during the test run itself
+3. Both reports (Playwright HTML + Universal Report) are generated automatically during the test run
 
 ---
 
@@ -476,12 +394,10 @@ Traditional testing requires you to add monitoring code to every test. Auto-fixt
 ### "Why Page Object Model?"
 If a website changes its layout, you fix ONE file (the page object), not dozens of test files. It's a separation of concerns — selectors and assertions in one place, test scenarios in another.
 
-### "Why 4 Reports?"
+### "Why 2 Reports?"
 Each report serves a different audience:
-- **Playwright HTML** — Developers debugging a specific failing test
-- **Allure** — QA leads reviewing test history and categories
-- **3D Benchmark** — Performance engineers analyzing speed and reliability
-- **Universal Report** — Everyone — one report with everything in 7 tabs
+- **Playwright HTML** — Developers debugging a specific failing test (traces, screenshots, videos)
+- **Universal Report** — Everyone — one report with everything in 7 tabs (Dashboard, Tests, Performance, Accessibility, Observability, Security, Glossary)
 
 ### "What Makes This Framework Different?"
 1. **Zero-code observability** — Network, errors, accessibility captured automatically
@@ -502,6 +418,4 @@ For someone new to this project, read the files in this order:
 5. `fixtures/test.fixture.ts` → Understand fixture chaining
 6. `pages/GettingStartedVscodePage.ts` → Understand POM pattern
 7. `tests/getting-started-vscode.spec.ts` → Understand test structure
-8. `reporters/observability-reporter.ts` → Understand data aggregation
-9. `reporters/UniversalReporter.ts` → Understand report generation
-10. `scripts/generate-performance-benchmark-report.ts` → Understand 3D dashboard
+8. `reporters/UniversalReporter.ts` → Understand report generation

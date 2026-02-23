@@ -5,7 +5,7 @@ A Playwright + TypeScript test framework with:
 - **5 core test cases** for the VS Code getting-started docs page
 - **Observability metrics** — network requests, errors, response times captured automatically
 - **Accessibility scanning** — every page is scanned for WCAG violations (missing alt text, empty buttons, heading order, etc.)
-- **3 reports generated in one command** — all output goes to `Reports/`
+- **2 reports generated in one command** — all output goes to `Reports/`
 
 ## Setup
 ```bash
@@ -21,9 +21,8 @@ npm run reports
 This single command:
 1. Cleans old report artifacts
 2. Runs all Playwright tests (Chromium + Firefox)
-3. Generates the **Observability & Performance Benchmark Report** (with accessibility data)
-4. Generates the **Allure HTML Report**
-5. Keeps the **Playwright HTML Report** ready
+3. Generates the **Playwright HTML Report** (built-in)
+4. Generates the **Universal Report** (7-tab HTML with Dashboard, Tests, Performance, Accessibility, Observability, Security, Glossary)
 
 ## Reports Location
 All output lives under `Reports/`:
@@ -32,77 +31,74 @@ All output lives under `Reports/`:
 Reports/
 ├── playwright-html/          ← Playwright's built-in HTML report
 │   └── index.html
-├── allure-report/            ← Allure HTML report
+├── universal-report/         ← 7-tab Universal Report
 │   └── index.html
-├── observability/
-│   ├── observability-metrics.json    ← Raw JSON metrics
-│   └── performance-benchmark-report.html  ← Performance + Accessibility dashboard
-├── allure-results/           ← Raw Allure result files
-└── test-results/             ← Failure screenshots, videos, traces
+└── test-results/             ← Screenshots, videos, traces
 ```
 
 ## Open Reports
-**Playwright HTML:**
+**Both reports at once:**
+```bash
+npm run report:open:all
+```
+
+**Playwright HTML only:**
 ```bash
 npm run report:playwright
 ```
 
-**Allure HTML:**
-```bash
-npm run report:allure:open
-```
+**Universal Report only:**
+Open `Reports/universal-report/index.html` in any browser.
 
-**Performance + Accessibility Dashboard:**
-Open `Reports/observability/performance-benchmark-report.html` in any browser.
+## What's in the Universal Report?
 
-## What's in the Performance + Accessibility Report?
+The Universal Report has **7 tabs**:
 
-### Performance Section
+### 1. Dashboard
+Overall benchmark score (0–100), tier (Elite/Strong/Stable/Watch/Critical), KPI cards, and summary charts.
+
+### 2. Tests
+Per-test results with embedded screenshots, status, duration, and error details.
+
+### 3. Performance
 | Metric | What it means |
 |--------|---------------|
 | **Benchmark Score** | Combined score (0–100) from speed, reliability, quality, throughput & accessibility |
-| **Benchmark Tier** | Grade: Elite (90+), Strong (75+), Stable (60+), Watch (40+), Critical (<40) |
 | **Pass Rate** | % of tests that passed |
 | **Throughput** | Tests completed per minute |
 | **Median / P95 / P99** | Duration percentiles — P99 = worst-case slow test |
 | **CV%** | Consistency metric — lower = more predictable run times |
-| **Request Failure Rate** | Failed network requests / total requests |
-| **Error Signals** | Combined count of request + HTTP + console + page errors |
 
-### Accessibility Section
+### 4. Accessibility
 | Metric | What it means |
 |--------|---------------|
 | **Accessibility Score** | 0–100 score based on violations found (fewer = better) |
 | **Violations by Impact** | Breakdown into Critical, Serious, Moderate, Minor |
 | **Top Violations** | Most frequent issues (e.g., `image-alt`, `button-name`, `heading-order`) |
-| **Pages with Issues** | How many test pages had at least one violation |
 
-### Charts
-- **3D Test Benchmark Cloud** — each dot = one test (size = error count)
-- **3D Browser Comparison** — bubble size = benchmark score
-- **Radar Chart** — 5 dimensions: Speed, Reliability, Quality, Throughput, Accessibility
-- **Duration Box Plot** — min/median/max spread per browser
-- **Tier Distribution** — pie chart of quality tiers
-- **Throughput vs Pass Rate** — bar + line combo
-- **Top 10 Slowest Tests** — bottleneck candidates
+### 5. Observability
+Network request counts, failure rates, response times, console errors, page errors.
+
+### 6. Security
+Security analysis with risk assessment and findings.
+
+### 7. Glossary
+Plain-English explanations of every metric for non-technical stakeholders.
 
 ## Framework Structure
 ```text
 pages/          → Page Object classes (selectors + actions + assertions)
 fixtures/       → Fixture wiring + observability hooks + accessibility scanning
 tests/          → Test specs (scenario-only, no raw selectors)
-reporters/      → Custom observability reporter
-scripts/        → Benchmark report generator
+reporters/      → Universal Report generator
 observability/  → TypeScript types for metrics
 ```
 
 ## Beginner Docs
-- `PROJECT-ARCHITECTURE.md` — **START HERE** — complete architecture guide with data flow diagrams, fixture chains, and file-by-file explanations (ideal for customer presentations)
-- `PACKAGE-SCRIPTS-GUIDE.md` — explains every npm script and dependency in `package.json`
+- `PROJECT-ARCHITECTURE.md` — **START HERE** — complete architecture guide with data flow diagrams and file-by-file explanations
+- `PACKAGE-SCRIPTS-GUIDE.md` — explains every npm script and dependency
 - `AGENTS.md` — simple rules for writing tests (POM rules, folder responsibilities)
 - `walkthrough.md` — step-by-step guide to understanding the framework
-- `UNIVERSAL-REPORT-WALKTHROUGH.md` — deep-dive into the 7-tab Universal Report
 
 > 💡 **Every source file is heavily commented** with architecture explanations, data flow
 > diagrams, "WHY" documentation, and how each file connects to the rest of the system.
-> You can open any `.ts` file and understand it without external docs.
