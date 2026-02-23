@@ -97,7 +97,6 @@ observability/  → TypeScript types for metrics
 ## Beginner Docs
 - `PROJECT-ARCHITECTURE.md` — **START HERE** — complete architecture guide with data flow diagrams and file-by-file explanations
 - `PACKAGE-SCRIPTS-GUIDE.md` — explains every npm script and dependency
-- `AGENTS.md` — simple rules for writing tests (POM rules, folder responsibilities)
 - `walkthrough.md` — step-by-step guide to understanding the framework
 
 > 💡 **Every source file is heavily commented** with architecture explanations, data flow

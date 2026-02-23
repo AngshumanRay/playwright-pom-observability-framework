@@ -4,7 +4,6 @@
   // ──────────────────────────────────────────────────────────────────
   // This file tells the TypeScript compiler HOW to process all .ts files.
   // Playwright itself uses this config when running tests via `npx playwright test`.
-  // The `tsx` runner also uses it when executing the benchmark report script.
   // ──────────────────────────────────────────────────────────────────
   "compilerOptions": {
     // TARGET: What JavaScript version to compile down to.

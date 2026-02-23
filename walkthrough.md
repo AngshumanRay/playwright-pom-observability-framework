@@ -95,7 +95,6 @@ Read these files in this order to understand the framework:
 |------|-----------------|
 | `PROJECT-ARCHITECTURE.md` | Full architecture guide — folder structure, data flow diagrams, fixture chain, report outputs, how to add tests |
 | `PACKAGE-SCRIPTS-GUIDE.md` | Every npm script explained, all dependencies explained with purpose |
-| `AGENTS.md` | Quick rules for test writers (POM rules, folder responsibilities, definition of done) |
 | `walkthrough.md` | This file — step-by-step understanding guide |
 | `README.md` | Quick setup + report reference |
 

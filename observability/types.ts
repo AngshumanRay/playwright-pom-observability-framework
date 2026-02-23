@@ -67,7 +67,7 @@ export interface AccessibilityViolation {
  * accessibility issues. This interface holds the aggregated counts and the
  * detailed list of violations found.
  *
- * The benchmark report uses these counts to compute an accessibility score:
+ * The Universal Report uses these counts to compute an accessibility score:
  *   score = 100 - (critical×4 + serious×3 + moderate×2 + minor×1) × 8
  */
 export interface AccessibilityScanResult {
@@ -196,7 +196,7 @@ export interface TestObservabilityEntry {
  *  1. Fixture captures per-test metrics → JSON attachment
  *  2. Reporter reads attachments → builds TestObservabilityEntry array
  *  3. Reporter aggregates → writes this ObservabilitySummary to disk
- *  4. Benchmark script reads this JSON → generates 3D dashboard
+ *  4. UniversalReporter uses this data to generate the 7-tab HTML report
  *
  * The `overall` section has aggregate stats across all tests.
  * The `accessibilityOverall` section has aggregate a11y counts.

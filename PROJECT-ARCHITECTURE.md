@@ -53,7 +53,6 @@ project-root/
 │   ├── universal-report/           ← 7-tab Universal Report HTML
 │   └── test-results/               ← Screenshots, videos, traces per test
 │
-├── AGENTS.md                       ← Quick rules for writing tests
 ├── README.md                       ← Setup & usage guide
 ├── walkthrough.md                  ← Beginner walkthrough
 └── PROJECT-ARCHITECTURE.md         ← THIS FILE — full architecture guide
