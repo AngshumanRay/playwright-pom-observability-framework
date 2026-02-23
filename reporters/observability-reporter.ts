@@ -1,18 +1,48 @@
 /**
  * @file observability-reporter.ts
- * @description Custom Playwright reporter that aggregates per-test observability
- *              metrics into a single `observability-metrics.json` summary file.
+ * @description Custom Playwright reporter that collects per-test observability metrics
+ *              and aggregates them into a single `observability-metrics.json` summary file.
  *
- * Data flow:
- *  1. Each test produces an `observability-metrics.json` attachment (via the
- *     auto-fixture in `observability.fixture.ts`).
- *  2. This reporter reads those attachments in `onTestEnd()`.
- *  3. In `onEnd()`, it computes aggregate statistics and writes the final
- *     JSON to `Reports/observability/observability-metrics.json`.
- *  4. The benchmark report generator reads that JSON to build the HTML dashboard.
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  THIS REPORTER IS THE "AGGREGATOR" — it reads individual per-test     ║
+ * ║  metric attachments and combines them into one JSON file that the     ║
+ * ║  benchmark script and dashboard consume.                               ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ *
+ * DATA FLOW — how this reporter fits into the pipeline:
+ *
+ *   STEP 1: Each test runs
+ *   └── observability.fixture.ts captures metrics (network, errors, a11y)
+ *   └── Saves as `observability-metrics.json` attachment on test result
+ *
+ *   STEP 2: THIS REPORTER reads those attachments
+ *   └── onTestEnd() → reads the JSON attachment from each test
+ *   └── Enriches with Playwright metadata (test ID, title, status, retry, etc.)
+ *   └── Stores as TestObservabilityEntry in memory
+ *
+ *   STEP 3: After ALL tests finish
+ *   └── onEnd() → aggregates all entries into ObservabilitySummary
+ *   └── Writes Reports/observability/observability-metrics.json
+ *
+ *   STEP 4: Post-run script reads the JSON
+ *   └── generate-performance-benchmark-report.ts → builds 3D dashboard HTML
+ *
+ * PLAYWRIGHT REPORTER INTERFACE:
+ *   Playwright calls specific methods on reporters at different lifecycle points:
+ *   - onBegin(config, suite)    → Called when the suite starts (not used here)
+ *   - onTestBegin(test, result) → Called when a single test starts (not used here)
+ *   - onTestEnd(test, result)   → Called when a single test finishes ← WE USE THIS
+ *   - onEnd(result)             → Called when ALL tests finish ← WE USE THIS
+ *
+ * WHY A SEPARATE REPORTER (vs doing this in the fixture)?
+ *   The fixture runs inside the test worker process and only has access to the
+ *   current test. The reporter runs in the main process and receives events from
+ *   ALL tests, making it the right place to aggregate data.
  *
  * @see {@link ../fixtures/observability.fixture.ts} — produces the per-test metrics
- * @see {@link ../scripts/generate-performance-benchmark-report.ts} — consumes the summary
+ * @see {@link ../scripts/generate-performance-benchmark-report.ts} — consumes the summary JSON
+ * @see {@link ../observability/types.ts} — shared TypeScript interfaces
+ * @see {@link ../PROJECT-ARCHITECTURE.md} — full architecture documentation
  */
 
 import path from 'node:path';
@@ -27,14 +57,22 @@ import type {
 
 // ---------------------------------------------------------------------------
 //  Constants
+//  These define WHERE the aggregated output file is written.
 // ---------------------------------------------------------------------------
 
 /** Directory where the aggregated metrics JSON is written. */
 const OUTPUT_DIR = path.resolve(process.cwd(), 'Reports/observability');
-/** Full path to the output file. */
+/**
+ * Full path to the output file.
+ * This is the main data file consumed by generate-performance-benchmark-report.ts.
+ */
 const OUTPUT_FILE = path.resolve(OUTPUT_DIR, 'observability-metrics.json');
 
-/** Default (empty) accessibility result used when no scan data is available. */
+/**
+ * Default (empty) accessibility result used when no scan data is available.
+ * This happens when a test fails before the accessibility scan can run
+ * (e.g., if the page never loaded).
+ */
 const EMPTY_A11Y: AccessibilityScanResult = {
   totalViolations: 0,
   critical: 0,
@@ -46,6 +84,8 @@ const EMPTY_A11Y: AccessibilityScanResult = {
 
 // ---------------------------------------------------------------------------
 //  Math helpers
+//  Duplicated here (same as in observability.fixture.ts) because reporters
+//  run in a separate process and can't share module state with fixtures.
 // ---------------------------------------------------------------------------
 
 /** Calculate the arithmetic mean. Returns 0 for empty arrays. */
@@ -74,11 +114,19 @@ function round(value: number, digits = 2): number {
 
 // ---------------------------------------------------------------------------
 //  Helper functions
+//  These extract metadata and read attachments from Playwright's test objects.
 // ---------------------------------------------------------------------------
 
 /**
  * Determine the Playwright project name (browser) for a test.
- * Tries multiple strategies: suite metadata → title path → fallback to 'default'.
+ *
+ * WHY THIS IS TRICKY:
+ * Playwright doesn't always expose the project name in the same way depending
+ * on how the test is organized. We try three strategies:
+ *   1. Suite metadata — `test.parent.project().name` (most reliable)
+ *   2. Title path — If the first segment is 'chromium'/'firefox'/'webkit'
+ *   3. Bracketed name — If the title path contains '[chromium]' style segments
+ *   4. Fallback to 'default' if nothing works
  */
 function resolveProjectName(test: TestCase): string {
   const fromSuite = (test.parent as { project?: () => { name: string } | undefined } | undefined)
@@ -102,7 +150,16 @@ function resolveProjectName(test: TestCase): string {
 
 /**
  * Read the `observability-metrics` JSON attachment from a test result.
- * Returns `undefined` if the attachment is missing or unreadable.
+ *
+ * HOW ATTACHMENTS WORK IN PLAYWRIGHT:
+ *   1. The observability fixture calls `testInfo.attach('observability-metrics', { path, contentType })`
+ *   2. Playwright stores this as an attachment on the TestResult object
+ *   3. This reporter finds the attachment by name and reads the JSON file
+ *
+ * Returns `undefined` if:
+ *   - The attachment is missing (test failed before fixture could save it)
+ *   - The file is unreadable (cleaned up between retries)
+ *   - The JSON is malformed
  */
 async function readMetricsAttachment(result: TestResult): Promise<FixtureObservabilityMetrics | undefined> {
   const attachment = result.attachments.find((item) => item.name === 'observability-metrics' && item.path);
@@ -120,15 +177,27 @@ async function readMetricsAttachment(result: TestResult): Promise<FixtureObserva
 
 // ---------------------------------------------------------------------------
 //  Reporter class
+//  This is the main reporter that Playwright instantiates and calls.
+//  It implements the Playwright `Reporter` interface with two key methods:
+//    onTestEnd() — called after each test, reads the metrics attachment
+//    onEnd()     — called when everything finishes, writes the aggregated JSON
 // ---------------------------------------------------------------------------
 
 /**
  * Custom Playwright reporter that collects observability data from every test
  * and writes an aggregated JSON summary at the end of the run.
  *
- * Implements the Playwright `Reporter` interface:
- *  - `onTestEnd()` — called after each test, reads the metrics attachment
- *  - `onEnd()` — called when the entire suite finishes, writes the summary
+ * REGISTRATION IN playwright.config.ts:
+ *   reporter: [['./reporters/observability-reporter.ts']]
+ *
+ * WHAT IT PRODUCES:
+ *   Reports/observability/observability-metrics.json
+ *   (consumed by generate-performance-benchmark-report.ts)
+ *
+ * HOW RETRIES ARE HANDLED:
+ *   If a test retries, `onTestEnd` is called for each attempt. We store
+ *   entries by test ID in a Map, so the last retry always overwrites previous
+ *   attempts. This means the final JSON only contains the last result for each test.
  */
 class ObservabilityReporter implements Reporter {
   /** Unique identifier for this test run (timestamp-based). */

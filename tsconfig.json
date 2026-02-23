@@ -1,21 +1,64 @@
 {
+  // ──────────────────────────────────────────────────────────────────
+  // TypeScript Configuration for the Playwright Observability Framework
+  // ──────────────────────────────────────────────────────────────────
+  // This file tells the TypeScript compiler HOW to process all .ts files.
+  // Playwright itself uses this config when running tests via `npx playwright test`.
+  // The `tsx` runner also uses it when executing the benchmark report script.
+  // ──────────────────────────────────────────────────────────────────
   "compilerOptions": {
+    // TARGET: What JavaScript version to compile down to.
+    // ES2022 supports top-level await, private class fields, Array.at(), etc.
+    // This is safe because we run on Node.js 18+ which supports ES2022 natively.
     "target": "ES2022",
+
+    // MODULE: The module system for output.
+    // CommonJS = require()/module.exports — compatible with Node.js and Playwright.
     "module": "CommonJS",
+
+    // MODULE RESOLUTION: How TypeScript finds imported modules.
+    // "Node" = standard Node.js resolution (node_modules, index files, etc.)
     "moduleResolution": "Node",
+
+    // TYPES: Which @types packages to include globally.
+    // - "node" = Node.js global types (process, fs, path, Buffer, etc.)
+    // - "@playwright/test" = Playwright's test runner types (test, expect, Page, etc.)
     "types": [
       "node",
       "@playwright/test"
     ],
+
+    // STRICT MODE: Enables all strict type-checking options.
+    // This catches more bugs at compile time (null checks, implicit any, etc.)
     "strict": true,
+
+    // ES MODULE INTEROP: Allows `import x from 'module'` syntax with CommonJS modules.
+    // Without this, you'd need `import * as x from 'module'` for many packages.
     "esModuleInterop": true,
+
+    // RESOLVE JSON MODULE: Allows importing .json files directly.
+    // Used by reporters and scripts that read observability-metrics.json.
     "resolveJsonModule": true,
+
+    // SKIP LIB CHECK: Don't type-check declaration files (.d.ts) in node_modules.
+    // Speeds up compilation significantly without affecting your code's type safety.
     "skipLibCheck": true,
+
+    // FORCE CONSISTENT CASING: Prevents import path casing mismatches.
+    // e.g., importing './Pages/foo' when the actual folder is './pages/foo'
+    // would cause errors on case-sensitive file systems (Linux CI).
     "forceConsistentCasingInFileNames": true
   },
+
+  // INCLUDE: Which files TypeScript should process.
+  // "**/*.ts" = all .ts files in all directories (tests, pages, fixtures, scripts, etc.)
   "include": [
     "**/*.ts"
   ],
+
+  // EXCLUDE: Which directories to skip.
+  // - node_modules = third-party packages (already compiled)
+  // - artifacts = test output artifacts (screenshots, traces) — no .ts files here
   "exclude": [
     "node_modules",
     "artifacts"

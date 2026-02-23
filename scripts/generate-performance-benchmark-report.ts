@@ -1,15 +1,49 @@
 /**
  * @file generate-performance-benchmark-report.ts
- * @description Reads `observability-metrics.json` and generates an interactive
- *              HTML benchmark dashboard with 3D Plotly.js charts, KPI cards,
- *              accessibility violation summaries, and browser comparison tables.
+ * @description Post-run script that reads the aggregated `observability-metrics.json`
+ *              and generates an interactive 3D benchmark dashboard HTML report.
  *
- * Scoring formula (per test, weighted composite):
- *   Benchmark = Duration×0.35 + Reliability×0.25 + Quality×0.15
- *             + Throughput×0.10 + Accessibility×0.15
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  THIS SCRIPT RUNS AFTER ALL TESTS FINISH.                              ║
+ * ║  It reads the JSON written by observability-reporter.ts and builds     ║
+ * ║  a rich HTML dashboard with Plotly.js 3D charts and KPI cards.         ║
+ * ║                                                                        ║
+ * ║  Unlike the UniversalReporter (which is a Playwright reporter running  ║
+ * ║  during tests), this is a standalone Node.js script invoked via:       ║
+ * ║    npm run report:3d                                                   ║
+ * ║    (or automatically as part of `npm run reports`)                     ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
  *
- * Tier classification based on score:
+ * HOW THIS FITS INTO THE PIPELINE:
+ *
+ *   1. Tests run → observability.fixture.ts captures per-test metrics
+ *   2. observability-reporter.ts aggregates → writes observability-metrics.json
+ *   3. THIS SCRIPT reads that JSON → enriches with scores → writes HTML dashboard
+ *
+ * SCORING FORMULA (per test, weighted composite):
+ *   Benchmark = Duration × 0.35 + Reliability × 0.25 + Quality × 0.15
+ *             + Throughput × 0.10 + Accessibility × 0.15
+ *
+ *   - Duration score:      Lower test duration = higher score (target: ≤1500ms)
+ *   - Reliability score:   Based on pass/fail status + retry penalty
+ *   - Quality score:       Lower error signals = higher score (network + console + page errors)
+ *   - Throughput score:    Higher tests/min = higher score (target: ≥30/min)
+ *   - Accessibility score: Fewer violations = higher score (weighted by severity)
+ *
+ * TIER CLASSIFICATION (based on final benchmark score):
  *   Elite (≥90) | Strong (≥75) | Stable (≥60) | Watch (≥40) | Critical (<40)
+ *
+ * CHARTS GENERATED IN THE DASHBOARD:
+ *   - 3D Test Benchmark Cloud (scatter: duration × throughput × score)
+ *   - 3D Browser Comparison (bubble: avg duration × throughput × pass rate)
+ *   - Radar Chart (5 dimensions per browser)
+ *   - Duration Box Plot (spread per browser)
+ *   - Tier Pie Chart (Elite/Strong/Stable/Watch/Critical distribution)
+ *   - Throughput vs Pass Rate (bar + line combo)
+ *   - Top 10 Slowest Tests (horizontal bar)
+ *   - Accessibility Violations by Impact (donut)
+ *   - Browser Comparison Table
+ *   - Per-Test Observability Table
  *
  * Usage:
  *   npx tsx scripts/generate-performance-benchmark-report.ts [path-to-metrics.json]
@@ -19,8 +53,15 @@
  *
  * @see {@link ../reporters/observability-reporter.ts} — produces the input JSON
  * @see {@link ../observability/types.ts} — shared type definitions
+ * @see {@link ../PROJECT-ARCHITECTURE.md} — full architecture documentation
  */
 
+// ── IMPORTS ─────────────────────────────────────────────────────────────
+// 'path' + 'fs' → Node.js built-ins for file I/O
+// The 3 shared types come from observability/types.ts:
+//   AccessibilityScanResult → per-test a11y violation data
+//   ObservabilitySummary   → the entire JSON structure produced by the reporter
+//   TestObservabilityEntry → one test's network / error / timing / a11y metrics
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import {
@@ -29,8 +70,9 @@ import {
   TestObservabilityEntry
 } from '../observability/types';
 
-// ---------------------------------------------------------------------------
-//  Constants
+// ── CONSTANTS ───────────────────────────────────────────────────────────
+// These paths mirror the output structure created by observability-reporter.ts.
+// The reporter writes the JSON; this script reads it and writes the HTML.
 // ---------------------------------------------------------------------------
 
 /** Default path to the observability metrics JSON (produced by the reporter). */
@@ -40,8 +82,16 @@ const OUTPUT_DIR = path.resolve(process.cwd(), 'Reports/observability');
 /** Full path of the generated benchmark HTML report. */
 const OUTPUT_FILE = path.resolve(OUTPUT_DIR, 'performance-benchmark-report.html');
 
-// ---------------------------------------------------------------------------
-//  Types
+// ── TYPES ────────────────────────────────────────────────────────────────
+// These types are LOCAL to this script (not shared with other files).
+// They extend the shared TestObservabilityEntry with computed fields
+// (scores, tiers, browser grouping) that only exist in the benchmark context.
+//
+// Hierarchy:
+//   TestObservabilityEntry (from types.ts)  → raw per-test data
+//     └─ BenchmarkTestEntry                → enriched with 5 sub-scores + tier
+//   BrowserBenchmarkRow                    → aggregated per-browser stats
+//   BenchmarkPayload                       → the final object embedded in HTML
 // ---------------------------------------------------------------------------
 
 /** Quality tier label derived from the benchmark score. */
@@ -140,8 +190,15 @@ interface BenchmarkPayload {
   tests: BenchmarkTestEntry[];
 }
 
-// ---------------------------------------------------------------------------
-//  Math helpers
+// ── MATH HELPERS ────────────────────────────────────────────────────────
+// Pure utility functions used by scoring and aggregation.
+// These have NO side effects and NO awareness of the domain.
+//
+//   round()       → avoids floating-point display issues (e.g. 99.99999)
+//   clamp()       → keeps scores within 0-100 range
+//   average()     → arithmetic mean for aggregations
+//   percentile()  → P50/P90/P95/P99 calculations
+//   stdDev()      → population standard deviation for CV% calculation
 // ---------------------------------------------------------------------------
 
 /** Round a number to the specified decimal places. */
@@ -176,8 +233,20 @@ function stdDev(values: number[]): number {
   return Math.sqrt(average(values.map((v) => (v - mean) ** 2)));
 }
 
-// ---------------------------------------------------------------------------
-//  Scoring helpers
+// ── SCORING HELPERS ─────────────────────────────────────────────────────
+// These functions convert raw metrics into 0-100 scores.
+// The scoring philosophy:
+//   - Each metric is mapped to a 0-100 scale via linear interpolation
+//   - "lower is better" metrics (duration, errors) use scoreLowerBetter()
+//   - "higher is better" metrics (throughput) use scoreHigherBetter()
+//   - Accessibility uses a penalty-based model (each violation deducts points)
+//   - Tier labels (Elite/Strong/Stable/Watch/Critical) provide quick status
+//
+// WHY THESE THRESHOLDS?
+//   Duration target  ≤1500ms → based on typical Playwright test expectations
+//   Throughput target ≥30/min → reasonable for parallel execution
+//   Error target      0      → zero errors is the goal
+//   A11y penalty      ×8     → one critical violation (4 weight) costs 32 points
 // ---------------------------------------------------------------------------
 
 /**
@@ -219,8 +288,14 @@ function a11yScore(a: AccessibilityScanResult): number {
   return round(clamp(100 - penalty * 8, 0, 100));
 }
 
-// ---------------------------------------------------------------------------
-//  Data extraction helpers
+// ── DATA EXTRACTION HELPERS ─────────────────────────────────────────────
+// These functions extract derived values from raw test entries.
+// They handle edge cases like missing timestamps or ambiguous project names.
+//
+//   extractBrowserName()  → determines which browser ran the test
+//                           (checks title path → project name → fallback)
+//   wallTimeMsFromTests() → calculates real-world elapsed time for throughput
+//                           (uses actual timestamps when available)
 // ---------------------------------------------------------------------------
 
 /**
@@ -249,8 +324,20 @@ function wallTimeMsFromTests(tests: Pick<BenchmarkTestEntry, 'startedAtMs' | 'en
   return tests.reduce((s, t) => s + t.durationMs, 0);
 }
 
-// ---------------------------------------------------------------------------
-//  Build enriched entries
+// ── BUILD ENRICHED ENTRIES ──────────────────────────────────────────────
+// This is the CORE TRANSFORMATION step:
+//   1. buildBenchmarkTestEntry() → takes a raw TestObservabilityEntry and adds:
+//      - browser name (extracted from title or project)
+//      - error signal count (sum of all error types)
+//      - throughput (tests/min based on duration)
+//      - 5 sub-scores (duration, reliability, quality, throughput, accessibility)
+//      - composite benchmark score (weighted average of 5 sub-scores)
+//      - tier label (Elite/Strong/Stable/Watch/Critical)
+//
+//   2. buildBrowserRows() → groups enriched entries by browser and computes:
+//      - aggregate statistics (pass rate, avg/p95/p99 durations, CV%, etc.)
+//      - browser-level composite benchmark score
+//      - sorted by score (best browser first)
 // ---------------------------------------------------------------------------
 
 /**
@@ -382,8 +469,17 @@ function buildBrowserRows(tests: BenchmarkTestEntry[]): BrowserBenchmarkRow[] {
   return rows.sort((a, b) => b.benchmarkScore - a.benchmarkScore);
 }
 
-// ---------------------------------------------------------------------------
-//  Build payload
+// ── BUILD PAYLOAD ───────────────────────────────────────────────────────
+// This function orchestrates the entire data pipeline:
+//   1. Enrich all test entries with scores (buildBenchmarkTestEntry)
+//   2. Aggregate by browser (buildBrowserRows)
+//   3. Compute overall suite-level metrics
+//   4. Aggregate accessibility violations across all tests
+//   5. Return a single BenchmarkPayload object
+//
+// The returned payload is serialized as JSON and embedded directly in the
+// HTML report as: `var payload = <JSON>;`
+// All Plotly.js charts read from this JavaScript variable at render time.
 // ---------------------------------------------------------------------------
 
 /**
@@ -480,8 +576,33 @@ function buildPayload(summary: ObservabilitySummary): BenchmarkPayload {
   };
 }
 
-// ---------------------------------------------------------------------------
-//  HTML Builder
+// ── HTML BUILDER ────────────────────────────────────────────────────────
+// Generates a SELF-CONTAINED HTML file (no external dependencies except Plotly CDN).
+// The entire payload is embedded as an inline JSON variable in a <script> tag.
+//
+// STRUCTURE OF THE HTML:
+//   <head>    → Plotly.js CDN link + inline CSS (2000+ lines of styles)
+//   <body>    → Static HTML skeleton with placeholder <div> containers
+//   <script>  → Client-side JS that reads `payload` and renders:
+//
+// CHARTS (rendered by Plotly.js in the browser):
+//   1. chart-a11y-impact    → Donut: violation counts by severity
+//   2. chart-3d-tests       → 3D scatter: duration × throughput × score
+//   3. chart-3d-browsers    → 3D bubble: avg duration × throughput × pass rate
+//   4. chart-radar          → Radar: 5 dimensions per browser
+//   5. chart-box            → Box plot: duration spread per browser
+//   6. chart-tier           → Pie: test tier distribution
+//   7. chart-throughput-pass → Combo bar+line: throughput vs pass rate
+//   8. chart-bottleneck     → Horizontal bar: top 10 slowest tests
+//
+// TABLES (populated by client-side JS):
+//   - browser-rows → browser comparison table
+//   - test-rows    → per-test observability data table
+//
+// OTHER SECTIONS:
+//   - KPI cards (benchmark score, pass rate, duration, etc.)
+//   - Accessibility overview (score + violation list)
+//   - Glossary of terms (for non-technical stakeholders)
 // ---------------------------------------------------------------------------
 
 /**
@@ -1034,8 +1155,21 @@ function buildHtml(payload: BenchmarkPayload): string {
 </html>`;
 }
 
-// ---------------------------------------------------------------------------
-//  Main
+// ── MAIN ENTRY POINT ────────────────────────────────────────────────────
+// This is the function that runs when you execute:
+//   npx tsx scripts/generate-performance-benchmark-report.ts
+//
+// It is also invoked automatically by `npm run reports` (via the `report:3d` script).
+//
+// STEPS:
+//   1. Determine the metrics JSON path (CLI arg or default)
+//   2. Read and parse the JSON (produced by observability-reporter.ts)
+//   3. Build the enriched payload (scores, tiers, aggregations)
+//   4. Generate the HTML string (with embedded charts)
+//   5. Write the HTML file to Reports/observability/
+//
+// If anything fails (file not found, invalid JSON, etc.), it logs the error
+// and exits with code 1 so CI pipelines can detect the failure.
 // ---------------------------------------------------------------------------
 
 /**

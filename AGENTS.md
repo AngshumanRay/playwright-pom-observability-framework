@@ -3,8 +3,10 @@
 This guide is for juniors and beginners writing tests in this framework.
 
 ## Read first
-1. `walkthrough.md` — how the framework works step by step
-2. `README.md` — setup, commands, report explanations
+1. `PROJECT-ARCHITECTURE.md` — **complete architecture guide** (data flow, fixture chain, file-by-file explanations)
+2. `walkthrough.md` — how the framework works step by step
+3. `PACKAGE-SCRIPTS-GUIDE.md` — every npm script and dependency explained
+4. `README.md` — setup, commands, report explanations
 
 ## Main rules
 1. Follow **Page Object Model** strictly — all selectors in `pages/`, all test logic in `tests/`.

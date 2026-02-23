@@ -1,0 +1,342 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playwright Universal Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --text-color: #e0e0e0;
+            --card-bg: #2d2d2d;
+            --accent: #3b82f6;
+            --success: #22c55e;
+            --fail: #ef4444;
+            --skip: #eab308;
+            --border: #404040;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1, h2, h3 { margin-top: 0; color: #fff; }
+        
+        /* Dashboard Grid */
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .stat-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+        }
+        .stat-label {
+            color: #9ca3af;
+        }
+
+        /* Test List */
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+        button.active { outline: 2px solid white; }
+        
+        .test-item {
+            background: var(--card-bg);
+            margin-bottom: 10px;
+            border-radius: 6px;
+            overflow: hidden;
+            border-left: 5px solid transparent;
+        }
+        .test-item.passed { border-left-color: var(--success); }
+        .test-item.failed { border-left-color: var(--fail); }
+        .test-item.skipped { border-left-color: var(--skip); }
+
+        .test-header {
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        .test-header:hover { background: rgba(255,255,255,0.02); }
+        
+        .test-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 0.9em;
+            color: #9ca3af;
+        }
+        .badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            background: #404040;
+            color: white;
+        }
+        .badge.passed { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .badge.failed { background: rgba(239, 68, 68, 0.2); color: var(--fail); }
+
+        .test-body {
+            display: none;
+            padding: 15px;
+            border-top: 1px solid var(--border);
+            animation: slideDown 0.2s ease-out;
+        }
+        .test-body.open { display: block; }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Test Artifacts */
+        .artifacts {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .artifact-card {
+            background: #1e1e1e;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        img.screenshot {
+            max-width: 100%;
+            border-radius: 4px;
+            cursor: zoom-in;
+        }
+        
+        /* Steps */
+        .steps-container {
+            margin-top: 15px;
+            font-family: monospace;
+            background: #111;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .step {
+            padding: 4px 0;
+            padding-left: 10px;
+            border-left: 2px solid #333;
+        }
+        .step.error { border-left-color: var(--fail); color: #fca5a5; }
+
+        /* Accessibility specific */
+        .a11y-scan {
+            margin-top: 20px;
+            border: 1px solid #a855f7;
+            background: rgba(168, 85, 247, 0.05);
+            padding: 15px;
+            border-radius: 6px;
+        }
+        .a11y-header {
+            color: #d8b4fe;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+        <h1>🧪 Test Report</h1>
+        <div class="test-meta">
+            <span>Generated: <span id="generateTime"></span></span>
+            <span>Duration: <span id="totalDuration"></span></span>
+        </div>
+    </header>
+
+    <!-- Dashboard -->
+    <div class="dashboard">
+        <div class="card stat-card" style="border-top: 4px solid var(--accent)">
+            <div>
+                <div class="stat-value" id="totalTests">0</div>
+                <div class="stat-label">Total Tests</div>
+            </div>
+            <div style="font-size: 2rem;">📋</div>
+        </div>
+        <div class="card stat-card" style="border-top: 4px solid var(--success)">
+            <div>
+                <div class="stat-value" style="color: var(--success)" id="passedTests">0</div>
+                <div class="stat-label">Passed</div>
+            </div>
+            <div style="font-size: 2rem;">✅</div>
+        </div>
+        <div class="card stat-card" style="border-top: 4px solid var(--fail)">
+            <div>
+                <div class="stat-value" style="color: var(--fail)" id="failedTests">0</div>
+                <div class="stat-label">Failed</div>
+            </div>
+            <div style="font-size: 2rem;">❌</div>
+        </div>
+        <div class="card">
+            <canvas id="statusChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="controls">
+        <button onclick="renderTests('all')" class="active">All</button>
+        <button onclick="renderTests('passed')" style="background: #15803d">Passed</button>
+        <button onclick="renderTests('failed')" style="background: #b91c1c">Failed</button>
+    </div>
+
+    <!-- Test List -->
+    <div id="testList"></div>
+</div>
+
+<script>
+    const data = {"config":{"workers":1,"rootDir":"/Users/angshumanray/Documents/New project","startTime":"2026-02-18T13:36:56.312Z","duration":13188},"summary":{"total":10,"passed":10,"failed":0,"skipped":0,"flaky":0},"tests":[{"id":"93bbc3f7c117cad65d72-35ad31b2f7a816990e3c","title":"loads the page with expected title and heading","project":"chromium","file":"tests/getting-started-vscode.spec.ts","duration":1300,"status":"passed","steps":[{"title":"Before Hooks","duration":1526,"steps":[{"title":"beforeEach hook","duration":1525,"steps":[{"title":"Fixture \"browser\"","duration":544,"steps":[{"title":"Launch browser","duration":543,"steps":[]}]},{"title":"Fixture \"context\"","duration":8,"steps":[{"title":"Create context","duration":5,"steps":[]}]},{"title":"Fixture \"page\"","duration":160,"steps":[{"title":"Create page","duration":160,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":1,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":805,"steps":[]}]}]},{"title":"Expect \"toHaveTitle\"","duration":16,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Getting started - VS Code/i, level: 1 })","duration":6,"steps":[]},{"title":"After Hooks","duration":304,"steps":[{"title":"Fixture \"docsPage\"","duration":1,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":21,"steps":[{"title":"Evaluate","duration":5,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":3,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":0,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":67,"steps":[{"title":"Close context","duration":27,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-32ae4--expected-title-and-heading-chromium/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-32ae4--expected-title-and-heading-chromium/attachments/observability-metrics-e763b2d97bdd59a98b296e704e85ed321659bce8.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-32ae4--expected-title-and-heading-chromium/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-32ae4--expected-title-and-heading-chromium/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-55c5b37afade1e26ca6d","title":"shows the top-level documentation sections","project":"chromium","file":"tests/getting-started-vscode.spec.ts","duration":943,"status":"passed","steps":[{"title":"Before Hooks","duration":391,"steps":[{"title":"beforeEach hook","duration":391,"steps":[{"title":"Fixture \"context\"","duration":2,"steps":[{"title":"Create context","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":22,"steps":[{"title":"Create page","duration":22,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":0,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":365,"steps":[]}]}]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Introduction/i, level: 2 })","duration":11,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Prerequisites/i, level: 2 })","duration":3,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Getting Started/i, level: 2 })","duration":2,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Core Features/i, level: 2 })","duration":3,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Advanced Features/i, level: 2 })","duration":2,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Quick Reference/i, level: 2 })","duration":2,"steps":[]},{"title":"After Hooks","duration":529,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":20,"steps":[{"title":"Evaluate","duration":6,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":0,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":101,"steps":[{"title":"Close context","duration":42,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-284e1-evel-documentation-sections-chromium/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-284e1-evel-documentation-sections-chromium/attachments/observability-metrics-5b5fd7ad942eb1d2e7927d87ab672c729c2b4905.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-284e1-evel-documentation-sections-chromium/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-284e1-evel-documentation-sections-chromium/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-f3d0ffdf7f72b30a59be","title":"contains setup and execution subsections","project":"chromium","file":"tests/getting-started-vscode.spec.ts","duration":783,"status":"passed","steps":[{"title":"Before Hooks","duration":401,"steps":[{"title":"beforeEach hook","duration":401,"steps":[{"title":"Fixture \"context\"","duration":1,"steps":[{"title":"Create context","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":22,"steps":[{"title":"Create page","duration":21,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":1,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":376,"steps":[]}]}]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Installation & Setup/i, level: 3 })","duration":11,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Opening the Testing Sidebar/i, level: 3 })","duration":3,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Running Your Tests/i, level: 3 })","duration":3,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Debugging Your Tests/i, level: 3 })","duration":2,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Generating Tests with CodeGen/i, level: 3 })","duration":3,"steps":[]},{"title":"After Hooks","duration":363,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":24,"steps":[{"title":"Evaluate","duration":9,"steps":[]},{"title":"Evaluate","duration":3,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":0,"steps":[]}]},{"title":"Fixture \"page\"","duration":1,"steps":[]},{"title":"Fixture \"context\"","duration":118,"steps":[{"title":"Close context","duration":59,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-3d9ad-p-and-execution-subsections-chromium/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-3d9ad-p-and-execution-subsections-chromium/attachments/observability-metrics-e39f5d933d3c6338dccbed2c3214d27bd6cfc222.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-3d9ad-p-and-execution-subsections-chromium/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-3d9ad-p-and-execution-subsections-chromium/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-e6680f6098e14d4e9146","title":"left sidebar includes active docs entry and key navigation links","project":"chromium","file":"tests/getting-started-vscode.spec.ts","duration":1271,"status":"passed","steps":[{"title":"Before Hooks","duration":489,"steps":[{"title":"beforeEach hook","duration":489,"steps":[{"title":"Fixture \"context\"","duration":2,"steps":[{"title":"Create context","duration":0,"steps":[]}]},{"title":"Fixture \"page\"","duration":22,"steps":[{"title":"Create page","duration":21,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":0,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":463,"steps":[]}]}]},{"title":"Expect \"toBeVisible\" locator('.theme-doc-sidebar-menu')","duration":11,"steps":[]},{"title":"Expect \"toBeVisible\" locator('.theme-doc-sidebar-menu').getByText(/^Getting Started$/i)","duration":3,"steps":[]},{"title":"Expect \"toBeVisible\" locator('.theme-doc-sidebar-menu').getByRole('link', { name: /^Getting started - VS Code$/i })","duration":3,"steps":[]},{"title":"Expect \"toBeVisible\" locator('.theme-doc-sidebar-menu').getByRole('link', { name: /^Running and debugging tests$/i })","duration":3,"steps":[]},{"title":"After Hooks","duration":762,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":18,"steps":[{"title":"Evaluate","duration":4,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":3,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":101,"steps":[{"title":"Close context","duration":36,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-87367-ry-and-key-navigation-links-chromium/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-87367-ry-and-key-navigation-links-chromium/attachments/observability-metrics-186cfc45ede1c3fd845544171480378ff2c88f99.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-87367-ry-and-key-navigation-links-chromium/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-87367-ry-and-key-navigation-links-chromium/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-2ebc78afc2d1c73e07f6","title":"table of contents links point to existing sections","project":"chromium","file":"tests/getting-started-vscode.spec.ts","duration":1186,"status":"passed","steps":[{"title":"Before Hooks","duration":434,"steps":[{"title":"beforeEach hook","duration":433,"steps":[{"title":"Fixture \"context\"","duration":1,"steps":[{"title":"Create context","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":25,"steps":[{"title":"Create page","duration":25,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":1,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":405,"steps":[]}]}]},{"title":"Query count locator('.theme-doc-toc-desktop a.table-of-contents__link[href^=\"#\"]')","duration":10,"steps":[]},{"title":"Expect \"toBeGreaterThan\"","duration":0,"steps":[]},{"title":"Evaluate locator('.theme-doc-toc-desktop a.table-of-contents__link[href^=\"#\"]')","duration":9,"steps":[]},{"title":"Expect \"toBeGreaterThan\"","duration":0,"steps":[]},{"title":"Expected section for #introduction locator('#introduction').first()","duration":2,"steps":[]},{"title":"Expected section for #prerequisites locator('#prerequisites').first()","duration":2,"steps":[]},{"title":"Expected section for #getting-started locator('#getting-started').first()","duration":2,"steps":[]},{"title":"Expected section for #installation--setup locator('#installation--setup').first()","duration":2,"steps":[]},{"title":"Expected section for #opening-the-testing-sidebar locator('#opening-the-testing-sidebar').first()","duration":2,"steps":[]},{"title":"Expected section for #core-features locator('#core-features').first()","duration":2,"steps":[]},{"title":"Expected section for #running-your-tests locator('#running-your-tests').first()","duration":2,"steps":[]},{"title":"Expected section for #debugging-your-tests locator('#debugging-your-tests').first()","duration":2,"steps":[]},{"title":"After Hooks","duration":718,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":14,"steps":[{"title":"Evaluate","duration":3,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":0,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":95,"steps":[{"title":"Close context","duration":36,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-60880--point-to-existing-sections-chromium/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-60880--point-to-existing-sections-chromium/attachments/observability-metrics-da6115e729bdc0177757c82c8ec3b4c4b858cca1.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-60880--point-to-existing-sections-chromium/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-60880--point-to-existing-sections-chromium/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-127cc5d343530abbb62e","title":"loads the page with expected title and heading","project":"firefox","file":"tests/getting-started-vscode.spec.ts","duration":1079,"status":"passed","steps":[{"title":"Before Hooks","duration":2567,"steps":[{"title":"beforeEach hook","duration":2567,"steps":[{"title":"Fixture \"browser\"","duration":1675,"steps":[{"title":"Launch browser","duration":1674,"steps":[]}]},{"title":"Fixture \"context\"","duration":124,"steps":[{"title":"Create context","duration":89,"steps":[]}]},{"title":"Fixture \"page\"","duration":298,"steps":[{"title":"Create page","duration":297,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":1,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":462,"steps":[]}]}]},{"title":"Expect \"toHaveTitle\"","duration":17,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Getting started - VS Code/i, level: 1 })","duration":6,"steps":[]},{"title":"After Hooks","duration":169,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":65,"steps":[{"title":"Evaluate","duration":27,"steps":[]},{"title":"Evaluate","duration":20,"steps":[]},{"title":"Evaluate","duration":3,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":4,"steps":[]},{"title":"Evaluate","duration":3,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":0,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":69,"steps":[{"title":"Close context","duration":43,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-32ae4--expected-title-and-heading-firefox/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-32ae4--expected-title-and-heading-firefox/attachments/observability-metrics-6128f619ca2a3de71db31d68f368668f0cf122ad.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-32ae4--expected-title-and-heading-firefox/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-32ae4--expected-title-and-heading-firefox/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-36c3f66278c93bf25a2e","title":"shows the top-level documentation sections","project":"firefox","file":"tests/getting-started-vscode.spec.ts","duration":616,"status":"passed","steps":[{"title":"Before Hooks","duration":442,"steps":[{"title":"beforeEach hook","duration":442,"steps":[{"title":"Fixture \"context\"","duration":6,"steps":[{"title":"Create context","duration":4,"steps":[]}]},{"title":"Fixture \"page\"","duration":50,"steps":[{"title":"Create page","duration":49,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":1,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":382,"steps":[]}]}]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Introduction/i, level: 2 })","duration":17,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Prerequisites/i, level: 2 })","duration":6,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Getting Started/i, level: 2 })","duration":6,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Core Features/i, level: 2 })","duration":6,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Advanced Features/i, level: 2 })","duration":5,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Quick Reference/i, level: 2 })","duration":8,"steps":[]},{"title":"After Hooks","duration":130,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":26,"steps":[{"title":"Evaluate","duration":4,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":7,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":3,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":56,"steps":[{"title":"Close context","duration":39,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-284e1-evel-documentation-sections-firefox/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-284e1-evel-documentation-sections-firefox/attachments/observability-metrics-7da88438fd0f8c55d98b632bcf25a3786fba7de1.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-284e1-evel-documentation-sections-firefox/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-284e1-evel-documentation-sections-firefox/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-df4fc2fe5ec7ba7d671e","title":"contains setup and execution subsections","project":"firefox","file":"tests/getting-started-vscode.spec.ts","duration":698,"status":"passed","steps":[{"title":"Before Hooks","duration":508,"steps":[{"title":"beforeEach hook","duration":508,"steps":[{"title":"Fixture \"context\"","duration":2,"steps":[{"title":"Create context","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":108,"steps":[{"title":"Create page","duration":108,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":0,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":394,"steps":[]}]}]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Installation & Setup/i, level: 3 })","duration":21,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Opening the Testing Sidebar/i, level: 3 })","duration":6,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Running Your Tests/i, level: 3 })","duration":6,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Debugging Your Tests/i, level: 3 })","duration":6,"steps":[]},{"title":"Expect \"toBeVisible\" getByRole('heading', { name: /Generating Tests with CodeGen/i, level: 3 })","duration":5,"steps":[]},{"title":"After Hooks","duration":150,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":62,"steps":[{"title":"Evaluate","duration":22,"steps":[]},{"title":"Evaluate","duration":26,"steps":[]},{"title":"Evaluate","duration":3,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":65,"steps":[{"title":"Close context","duration":48,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-3d9ad-p-and-execution-subsections-firefox/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-3d9ad-p-and-execution-subsections-firefox/attachments/observability-metrics-a22d09cb5ef4ee00bc5e7421452549430606bdb3.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-3d9ad-p-and-execution-subsections-firefox/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-3d9ad-p-and-execution-subsections-firefox/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-7563f1b9ff23ca508b71","title":"left sidebar includes active docs entry and key navigation links","project":"firefox","file":"tests/getting-started-vscode.spec.ts","duration":738,"status":"passed","steps":[{"title":"Before Hooks","duration":551,"steps":[{"title":"beforeEach hook","duration":551,"steps":[{"title":"Fixture \"context\"","duration":2,"steps":[{"title":"Create context","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":98,"steps":[{"title":"Create page","duration":97,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":1,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":449,"steps":[]}]}]},{"title":"Expect \"toBeVisible\" locator('.theme-doc-sidebar-menu')","duration":15,"steps":[]},{"title":"Expect \"toBeVisible\" locator('.theme-doc-sidebar-menu').getByText(/^Getting Started$/i)","duration":6,"steps":[]},{"title":"Expect \"toBeVisible\" locator('.theme-doc-sidebar-menu').getByRole('link', { name: /^Getting started - VS Code$/i })","duration":8,"steps":[]},{"title":"Expect \"toBeVisible\" locator('.theme-doc-sidebar-menu').getByRole('link', { name: /^Running and debugging tests$/i })","duration":7,"steps":[]},{"title":"After Hooks","duration":154,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":59,"steps":[{"title":"Evaluate","duration":25,"steps":[]},{"title":"Evaluate","duration":22,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":1,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":64,"steps":[{"title":"Close context","duration":45,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-87367-ry-and-key-navigation-links-firefox/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-87367-ry-and-key-navigation-links-firefox/attachments/observability-metrics-d2198084cb5a006b62209841d060afa596a6fd38.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-87367-ry-and-key-navigation-links-firefox/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-87367-ry-and-key-navigation-links-firefox/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]},{"id":"93bbc3f7c117cad65d72-9d1c9795c74bf00f7c35","title":"table of contents links point to existing sections","project":"firefox","file":"tests/getting-started-vscode.spec.ts","duration":743,"status":"passed","steps":[{"title":"Before Hooks","duration":510,"steps":[{"title":"beforeEach hook","duration":510,"steps":[{"title":"Fixture \"context\"","duration":2,"steps":[{"title":"Create context","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":114,"steps":[{"title":"Create page","duration":114,"steps":[]}]},{"title":"Fixture \"observabilityAuto\"","duration":1,"steps":[]},{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Navigate to \"/docs/getting-started-vscode\"","duration":391,"steps":[]}]}]},{"title":"Query count locator('.theme-doc-toc-desktop a.table-of-contents__link[href^=\"#\"]')","duration":14,"steps":[]},{"title":"Expect \"toBeGreaterThan\"","duration":0,"steps":[]},{"title":"Evaluate locator('.theme-doc-toc-desktop a.table-of-contents__link[href^=\"#\"]')","duration":14,"steps":[]},{"title":"Expect \"toBeGreaterThan\"","duration":0,"steps":[]},{"title":"Expected section for #introduction locator('#introduction').first()","duration":4,"steps":[]},{"title":"Expected section for #prerequisites locator('#prerequisites').first()","duration":4,"steps":[]},{"title":"Expected section for #getting-started locator('#getting-started').first()","duration":3,"steps":[]},{"title":"Expected section for #installation--setup locator('#installation--setup').first()","duration":3,"steps":[]},{"title":"Expected section for #opening-the-testing-sidebar locator('#opening-the-testing-sidebar').first()","duration":3,"steps":[]},{"title":"Expected section for #core-features locator('#core-features').first()","duration":2,"steps":[]},{"title":"Expected section for #running-your-tests locator('#running-your-tests').first()","duration":4,"steps":[]},{"title":"Expected section for #debugging-your-tests locator('#debugging-your-tests').first()","duration":2,"steps":[]},{"title":"After Hooks","duration":181,"steps":[{"title":"Fixture \"docsPage\"","duration":0,"steps":[]},{"title":"Fixture \"observabilityAuto\"","duration":66,"steps":[{"title":"Evaluate","duration":16,"steps":[]},{"title":"Evaluate","duration":8,"steps":[]},{"title":"Evaluate","duration":22,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":5,"steps":[]},{"title":"Evaluate","duration":5,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Evaluate","duration":2,"steps":[]},{"title":"Attach \"observability-metrics\"","duration":1,"steps":[]}]},{"title":"Fixture \"page\"","duration":0,"steps":[]},{"title":"Fixture \"context\"","duration":83,"steps":[{"title":"Close context","duration":42,"steps":[]}]}]}],"errors":[],"attachments":[{"name":"screenshot","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-60880--point-to-existing-sections-firefox/test-finished-1.png","contentType":"image/png"},{"name":"observability-metrics","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-60880--point-to-existing-sections-firefox/attachments/observability-metrics-187aef62a542401f393041f98d426a64d59602e1.json","contentType":"application/json"},{"name":"video","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-60880--point-to-existing-sections-firefox/video.webm","contentType":"video/webm"},{"name":"trace","path":"/Users/angshumanray/Documents/New project/Reports/test-results/getting-started-vscode-Pla-60880--point-to-existing-sections-firefox/trace.zip","contentType":"application/zip"}],"stdout":[],"stderr":[]}]};
+
+    // --- Init Stats ---
+    document.getElementById('generateTime').textContent = new Date(data.config.startTime).toLocaleString();
+    document.getElementById('totalDuration').textContent = (data.config.duration / 1000).toFixed(2) + 's';
+    document.getElementById('totalTests').textContent = data.summary.total;
+    document.getElementById('passedTests').textContent = data.summary.passed;
+    document.getElementById('failedTests').textContent = data.summary.failed;
+
+    // --- Chart ---
+    const ctx = document.getElementById('statusChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Passed', 'Failed', 'Skipped'],
+            datasets: [{
+                data: [data.summary.passed, data.summary.failed, data.summary.skipped],
+                backgroundColor: ['#22c55e', '#ef4444', '#eab308'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { color: '#e0e0e0' } }
+            }
+        }
+    });
+
+    // --- Rendering Tests ---
+    const listContainer = document.getElementById('testList');
+
+    function toggleTest(id) {
+        const body = document.getElementById('body-' + id);
+        body.classList.toggle('open');
+    }
+
+    function renderTests(filter) {
+        listContainer.innerHTML = '';
+        const tests = data.tests.filter(t => filter === 'all' || 
+            (filter === 'passed' && t.status === 'passed') ||
+            (filter === 'failed' && ['failed', 'timedOut'].includes(t.status))
+        );
+
+        tests.forEach(test => {
+            const el = document.createElement('div');
+            el.className = `test-item ${test.status}`;
+            
+            // Steps HTML
+            const stepsHtml = renderSteps(test.steps);
+            
+            // Attachments HTML
+            const attachmentHtml = test.attachments.map((att, i) => {
+                if (att.contentType.startsWith('image/')) {
+                    // Note: In a real single-file scenario with NO external files, we'd need base64. 
+                    // Playwright attachments usually come as paths. 
+                    // For this 'Universal' reporter to work anywhere, we assume paths are accessible relative to report
+                    // OR we just show a link if it's too complex.
+                    // Here we'll try to show a placeholder for path-based images or skip logic simplicity.
+                   const src = att.path ? att.path : ''; 
+                   return `<div class="artifact-card">
+                        <div>Screenshot</div>
+                        <a href="${src}" target="_blank">View</a>
+                   </div>`;
+                }
+                return `<div class="artifact-card">API/Video/Other: ${att.name}</div>`;
+            }).join('');
+
+            const errorHtml = test.errors.length ? 
+                `<div style="background:rgba(239,68,68,0.1); color:#fca5a5; padding:10px; border-radius:4px; margin-bottom:10px;">
+                    ${test.errors.join('<br>')}
+                 </div>` : '';
+
+            el.innerHTML = `
+                <div class="test-header" onclick="toggleTest('${test.id}')">
+                    <div style="font-weight:500">${test.title} <span style="color:#666">in ${test.file}</span></div>
+                    <div class="test-meta">
+                        <span>${test.duration}ms</span>
+                        <span class="badge ${test.status}">${test.status.toUpperCase()}</span>
+                    </div>
+                </div>
+                <div class="test-body" id="body-${test.id}">
+                    ${errorHtml}
+                    <div class="steps-container">
+                        <strong>Steps:</strong>
+                        ${stepsHtml}
+                    </div>
+                    <div class="artifacts">
+                        ${attachmentHtml}
+                    </div>
+                </div>
+            `;
+            listContainer.appendChild(el);
+        });
+    }
+
+    function renderSteps(steps, level = 0) {
+        if (!steps || !steps.length) return '';
+        return steps.map(s => `
+            <div class="step ${s.error ? 'error' : ''}" style="margin-left: ${level * 10}px">
+                ${s.error ? '❌' : '🔹'} ${s.title} (${s.duration}ms)
+                ${s.steps ? renderSteps(s.steps, level + 1) : ''}
+            </div>
+        `).join('');
+    }
+
+    renderTests('all');
+</script>
+
+</body>
+</html>
+    

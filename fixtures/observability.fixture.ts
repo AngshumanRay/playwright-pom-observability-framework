@@ -1,18 +1,75 @@
 /**
  * @file observability.fixture.ts
- * @description Auto-fixture that transparently instruments every Playwright test.
+ * @description The "invisible engine" — an auto-fixture that transparently instruments
+ *              every Playwright test with network monitoring, error tracking, and
+ *              accessibility scanning. Test authors write ZERO extra code.
  *
- * What it captures (with zero effort from the test author):
- *  - Network metrics: request count, failures, response times (avg / P95)
- *  - Console errors and unhandled page errors
- *  - Test duration & timestamps
- *  - Accessibility scan (7 WCAG rules) run after each test action completes
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║  THIS IS THE MOST IMPORTANT FILE IN THE FRAMEWORK.                     ║
+ * ║  It's what makes "automatic observability" possible.                   ║
+ * ║                                                                        ║
+ * ║  The key concept is `{ auto: true }` — this tells Playwright to run   ║
+ * ║  this fixture for EVERY test automatically. No test needs to request   ║
+ * ║  it or even know it exists.                                            ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
  *
- * All collected data is written to an `observability-metrics.json` attachment
- * which the custom ObservabilityReporter later aggregates into a single JSON.
+ * HOW THIS FILE FITS INTO THE FIXTURE CHAIN:
  *
- * @see {@link ../reporters/observability-reporter.ts} — consumes these attachments
+ *   @playwright/test (base)           ← Provides `page`, `browser`, `context`
+ *         │
+ *         │ extended by THIS FILE
+ *         ▼
+ *   observability.fixture.ts          ← Adds `observabilityAuto` auto-fixture
+ *         │                              - Attaches network event listeners
+ *         │                              - Captures console/page errors
+ *         │                              - Runs accessibility scan
+ *         │                              - Saves metrics as JSON attachment
+ *         │ extended by
+ *         ▼
+ *   test.fixture.ts                   ← Adds `docsPage` page object
+ *         │
+ *         │ imported by
+ *         ▼
+ *   tests/*.spec.ts                   ← Tests use `docsPage` — metrics are auto
+ *
+ * LIFECYCLE OF THE AUTO-FIXTURE (per test):
+ *
+ *   1. BEFORE test starts:
+ *      - Attach 6 event listeners to `page`:
+ *        • page.on('request')         → count every outgoing request
+ *        • page.on('requestfinished') → measure response time
+ *        • page.on('requestfailed')   → count network failures
+ *        • page.on('response')        → count HTTP 4xx/5xx errors
+ *        • page.on('console')         → capture console.error() messages
+ *        • page.on('pageerror')       → capture unhandled JS errors
+ *
+ *   2. DURING test:
+ *      - `await use()` gives control to the test
+ *      - Listeners silently accumulate data in background
+ *
+ *   3. AFTER test ends:
+ *      - Run accessibility scan (8 WCAG rules via page.evaluate)
+ *      - Build FixtureObservabilityMetrics object
+ *      - Save as JSON file and attach to test result
+ *      - Reporters read this attachment later
+ *
+ * WHAT GETS CAPTURED (automatically, for every test):
+ *   ✅ requestCount           — Total network requests
+ *   ✅ requestFailureCount    — Failed requests (DNS, TLS, connection errors)
+ *   ✅ responseErrorCount     — HTTP 4xx/5xx responses
+ *   ✅ responseTimesMs[]      — Array of response times for every request
+ *   ✅ avgResponseTimeMs      — Average response time
+ *   ✅ p95ResponseTimeMs      — 95th percentile response time
+ *   ✅ consoleErrors[]        — Console.error() messages
+ *   ✅ pageErrors[]           — Unhandled JavaScript errors (window.onerror)
+ *   ✅ testStartedAt/EndedAt  — ISO timestamps
+ *   ✅ testDurationMs         — Wall-clock duration
+ *   ✅ accessibility          — Full WCAG scan results
+ *
  * @see {@link ../observability/types.ts} — TypeScript interfaces for the metrics
+ * @see {@link ../reporters/observability-reporter.ts} — Reads and aggregates these attachments
+ * @see {@link ../reporters/UniversalReporter.ts} — Also reads these attachments for the 7-tab report
+ * @see {@link ../PROJECT-ARCHITECTURE.md} — Full architecture documentation
  */
 
 import { promises as fs } from 'node:fs';
@@ -20,7 +77,10 @@ import { Request, test as base, expect } from '@playwright/test';
 import { AccessibilityScanResult, AccessibilityViolation, FixtureObservabilityMetrics } from '../observability/types';
 
 // ---------------------------------------------------------------------------
-//  Math utility helpers (duplicated here to avoid importing across packages)
+//  Math utility helpers
+//  These are duplicated here (not imported from a shared module) because
+//  this fixture file needs to be self-contained — it runs inside Playwright's
+//  worker process and importing across package boundaries can cause issues.
 // ---------------------------------------------------------------------------
 
 /** Calculate the arithmetic mean of an array of numbers. Returns 0 for empty arrays. */
@@ -53,6 +113,25 @@ function round(value: number, digits = 2): number {
 
 // ---------------------------------------------------------------------------
 //  Accessibility scanner
+//  This is a CUSTOM, lightweight accessibility scanner that runs entirely
+//  inside the browser using page.evaluate(). It does NOT require axe-core
+//  or any external library — it checks 8 common WCAG rules using plain
+//  DOM queries.
+//
+//  WHY NOT USE AXE-CORE?
+//  axe-core is the industry standard but adds ~500KB of JavaScript to inject
+//  into every page. This custom scanner is zero-dependency and catches the
+//  most common accessibility issues that matter in practice.
+//
+//  RULES CHECKED (8 total):
+//  1. image-alt          — Images without alt text                 (critical)
+//  2. button-name        — Buttons without accessible names         (critical)
+//  3. link-name          — Links without accessible names           (serious)
+//  4. html-has-lang      — Missing <html lang> attribute            (serious)
+//  5. label              — Form inputs without labels               (critical)
+//  6. heading-order      — Skipped heading levels (e.g., h1 → h3)  (moderate)
+//  7. color-contrast     — Low contrast text                        (serious)
+//  8. landmark-main      — Missing <main> landmark region           (moderate)
 // ---------------------------------------------------------------------------
 
 /**
@@ -230,6 +309,19 @@ async function runAccessibilityScan(page: import('@playwright/test').Page): Prom
 
 // ---------------------------------------------------------------------------
 //  Auto-fixture: observability instrumentation
+//  This section defines the actual Playwright fixture that does all the work.
+//
+//  KEY CONCEPT — `{ auto: true }`:
+//  In Playwright, when you extend `test` and add a fixture with `{ auto: true }`,
+//  that fixture runs for EVERY test automatically, even if the test doesn't
+//  mention it. This is what makes our observability "invisible" — the test
+//  author doesn't need to do anything.
+//
+//  HOW `await use()` WORKS:
+//  In a Playwright fixture, `await use(value)` is the "yield point":
+//    - Code BEFORE `await use()` runs BEFORE the test
+//    - Code AFTER `await use()` runs AFTER the test
+//  This gives us a perfect setup/teardown lifecycle.
 // ---------------------------------------------------------------------------
 
 /**

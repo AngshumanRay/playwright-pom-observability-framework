@@ -37,15 +37,23 @@ This command does: clean → test → generate benchmark report → generate All
 ## 4) File reading order (recommended)
 Read these files in this order to understand the framework:
 
-1. **`package.json`** — npm scripts (how to run things)
-2. **`playwright.config.ts`** — browsers, reporters, timeouts
-3. **`observability/types.ts`** — data shapes (metrics + accessibility types)
-4. **`fixtures/observability.fixture.ts`** — auto-captures network, errors, accessibility per test
-5. **`fixtures/test.fixture.ts`** — injects page objects into tests
-6. **`pages/GettingStartedVscodePage.ts`** — selectors + reusable methods
-7. **`tests/getting-started-vscode.spec.ts`** — 5 test scenarios
-8. **`reporters/observability-reporter.ts`** — aggregates metrics into JSON
-9. **`scripts/generate-performance-benchmark-report.ts`** — builds the HTML dashboard
+1. **`PROJECT-ARCHITECTURE.md`** — START HERE — full architecture guide with data flow diagrams
+2. **`PACKAGE-SCRIPTS-GUIDE.md`** — explains every npm script and dependency
+3. **`package.json`** — npm scripts (how to run things)
+4. **`tsconfig.json`** — TypeScript compiler options (fully commented with explanations)
+5. **`playwright.config.ts`** — browsers, reporters, timeouts (heavily commented)
+6. **`observability/types.ts`** — data shapes (metrics + accessibility types, with data flow docs)
+7. **`fixtures/observability.fixture.ts`** — auto-captures network, errors, accessibility per test
+8. **`fixtures/test.fixture.ts`** — injects page objects into tests (with fixture chain diagram)
+9. **`pages/GettingStartedVscodePage.ts`** — selectors + reusable methods (POM pattern explained)
+10. **`tests/getting-started-vscode.spec.ts`** — 5 test scenarios (per-test WHY explanations)
+11. **`reporters/observability-reporter.ts`** — aggregates metrics into JSON (pipeline docs)
+12. **`reporters/UniversalReporter.ts`** — generates 7-tab HTML report (section-level docs)
+13. **`scripts/generate-performance-benchmark-report.ts`** — builds the 3D benchmark HTML dashboard
+
+> 💡 **Every file is heavily commented with architecture explanations, data flow diagrams,
+> and "WHY" documentation.** You can read any file and understand its purpose, how it
+> connects to other files, and how data flows through the system.
 
 ## 5) How to add a new test
 1. Add a new method in the page object (`pages/...Page.ts`) first.
@@ -85,3 +93,16 @@ Read these files in this order to understand the framework:
 3. Check the benchmark dashboard for performance regressions or new accessibility violations.
 4. Validate selectors in the page object if a test can't find an element.
 5. Re-run with `npm run reports` after fixing.
+
+## 8) Documentation files summary
+| File | What it explains |
+|------|-----------------|
+| `PROJECT-ARCHITECTURE.md` | Full architecture guide — folder structure, data flow diagrams, fixture chain, report outputs, how to add tests, key concepts for customer explanation |
+| `PACKAGE-SCRIPTS-GUIDE.md` | Every npm script explained, all dependencies explained with purpose |
+| `AGENTS.md` | Quick rules for test writers (POM rules, folder responsibilities, definition of done) |
+| `UNIVERSAL-REPORT-WALKTHROUGH.md` | Deep-dive into the 7-tab Universal Report (if present) |
+| `walkthrough.md` | This file — step-by-step understanding guide |
+| `README.md` | Quick setup + report reference |
+
+> 💡 **For customer presentations**, start with `PROJECT-ARCHITECTURE.md` — it has everything
+> needed to explain the framework's design, data flow, and value proposition.
